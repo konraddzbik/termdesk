@@ -7,7 +7,7 @@
 ![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white&style=flat-square)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black&style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white&style=flat-square)
-![Tests](https://img.shields.io/badge/tests-637%20passing-brightgreen?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-650%20passing-brightgreen?style=flat-square)
 ![Coverage](https://img.shields.io/badge/coverage-36.82%25%20lines-yellow?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
@@ -82,6 +82,14 @@ Two deliberate exceptions to "secrets stay in main": the stored **VNC** password
 
 ## 🚀 Quick start
 
+TermDesk is currently run **from source**. `konraddzbik/termdesk` has **no tags
+and no GitHub Releases**, so there is nothing to download from the Releases page
+yet — see [`INSTALL.md`](INSTALL.md).
+
+You need **Node.js >=22.12.0** and **npm 10+**, plus a C/C++ toolchain (Xcode
+Command Line Tools / `build-essential` / Visual Studio C++ build tools) so the
+native modules can compile.
+
 ```bash
 npm install        # also applies the better-sqlite3 patch + rebuilds native deps
 npm run dev        # electron-vite dev server + Electron window, HMR
@@ -101,7 +109,7 @@ npm run dev        # electron-vite dev server + Electron window, HMR
 | `npm run test:coverage` | vitest with v8 coverage |
 | `npm run dist` | build + electron-builder (dmg / NSIS / AppImage) |
 
-`npm run dist` produces `dist/TermDesk-<version>-arm64.dmg` on Apple Silicon macOS (verified to launch). See [`INSTALL.md`](INSTALL.md) for per-OS download & install instructions.
+`npm run dist` produces an unsigned installer for the host OS (`dist/TermDesk-<version>-arm64.dmg` on Apple Silicon macOS, plus a cross-built x64 `.dmg`). It does not publish anything. See [`INSTALL.md`](INSTALL.md) for from-source setup, local artifact names, and how a future GitHub Release would be cut.
 
 ## 🧪 Dev test environment
 
@@ -132,7 +140,7 @@ Five self-contained end-to-end suites run inside the real Electron app (the firs
 ## ✅ Testing
 
 ```bash
-npm test                # 637 unit/integration tests across 69 files — all green
+npm test                # 650 unit/integration tests across 70 files — all green
 npm run test:coverage   # v8 line coverage: 36.82% (2340/6355 lines)
 ```
 
@@ -232,7 +240,9 @@ See [`SECURITY.md`](SECURITY.md#future-hardening) for the hardening roadmap.
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the development setup
+Issues and pull requests are welcome. The delivery plan for outsider install,
+packages, and contributor setup is [`docs/OSS-DELIVERY-PLAN.md`](docs/OSS-DELIVERY-PLAN.md).
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the development setup
 — including the two native-module traps that will otherwise cost you an afternoon — the invariants new
 code has to keep, and the pre-PR checklist. Contributions are **inbound=outbound MIT**: no CLA, no
 copyright assignment.
@@ -246,9 +256,10 @@ The **source** in this repository is released under the **MIT License** — see
 [`LICENSE`](LICENSE). You may use, modify, and redistribute it, including
 commercially, as long as the copyright notice and licence text travel with it.
 
-The **prebuilt installers** published on the Releases page are additionally
-covered by [`EULA.txt`](EULA.txt), which governs those binaries; a build you make
-yourself from this source is governed by `LICENSE` alone.
+When prebuilt installers exist on the Releases page they are additionally
+covered by [`EULA.txt`](EULA.txt), which governs those binaries. There are
+currently no GitHub Releases, so a build you make yourself from this source is
+governed by `LICENSE` alone.
 
 There is no licence check, seat activation or account in this client: the
 commercial licensing subsystem was removed when the source was published, so

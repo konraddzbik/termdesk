@@ -57,9 +57,9 @@ body:
       label: CPU architecture
       description: >-
         This matters. Native modules (better-sqlite3, node-pty, ssh2) are built per
-        architecture, and the published macOS build for 0.4.0 is arm64 only — on an Intel
-        Mac you are running either an older release or your own build. On macOS: Apple menu
-        → About This Mac ("Apple M…" = arm64, "Intel" = x64).
+        architecture, and there is not yet a GitHub Release with a downloadable
+        installer — you are running from source or from a build you made (`npm run
+        dist`). On macOS: Apple menu → About This Mac ("Apple M…" = arm64, "Intel" = x64).
       options:
         - arm64 (Apple Silicon)
         - x64 / x86_64 (Intel or AMD)

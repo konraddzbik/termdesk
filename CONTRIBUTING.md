@@ -31,7 +31,7 @@ Follow this file top to bottom and you get a working checkout.
 npm ci               # postinstall: patch-package, then rebuilds native modules for Electron
 npm run lint
 npm run typecheck
-npm test             # 69 files, 637 tests at the time of writing
+npm test             # 70 files, 650 tests at the time of writing
 npm run build
 npm run dev
 ```
