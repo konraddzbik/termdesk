@@ -13,7 +13,7 @@ You need:
 - **Node.js >=22.12.0** and **npm 10+** (`.nvmrc` pins the version CI uses)
 - A C/C++ toolchain so native modules can compile: Xcode Command Line Tools on
   macOS, `build-essential` + `python3` on Linux, the Visual Studio C++ build
-  tools on Windows
+  tools plus Python (node-gyp) on Windows
 
 ```bash
 git clone https://github.com/konraddzbik/termdesk.git
@@ -49,6 +49,16 @@ package job (`.github/workflows/ci.yml`) is the multi-OS path. After
 `npm run dist` on Apple Silicon, restore host-arch native modules with
 `npx electron-builder install-app-deps` before `npm run dev` — see
 [`CONTRIBUTING.md`](CONTRIBUTING.md) trap 2.
+
+## CI artifacts (unsigned, 14 days)
+
+Every push to `main` that passes verify also runs the package job and uploads
+unsigned installers as GitHub Actions artifacts (`termdesk-macos`,
+`termdesk-windows`, `termdesk-linux`) with **14-day** retention. Open the latest
+green [CI run](https://github.com/konraddzbik/termdesk/actions/workflows/ci.yml)
+→ *Artifacts*. These are **not** GitHub Releases; they expire, they are
+unsigned, and the macOS job does not yet run the native-module architecture
+check that `release.yml` does.
 
 The builds are **unsigned**. Every OS therefore shows a one-time "unknown
 developer" warning, and on macOS this has a second consequence: **an unsigned

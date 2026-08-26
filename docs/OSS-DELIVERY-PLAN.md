@@ -78,6 +78,7 @@ Milestones with these same three names are the tracker grouping.
 | [#10](https://github.com/konraddzbik/termdesk/issues/10) | Add a testable install/package contract (artifact names, tag vs version, no invented downloads) |
 | [#11](https://github.com/konraddzbik/termdesk/issues/11) | Bug report template assumed a published 0.4.0 arm64 installer |
 | [#12](https://github.com/konraddzbik/termdesk/issues/12) | Updater and UPDATING.md send users to /releases/latest as if a build exists |
+| [#26](https://github.com/konraddzbik/termdesk/issues/26) | CI package job does not verify macOS native-module architecture |
 
 ### Contributor setup
 
@@ -88,6 +89,9 @@ Milestones with these same three names are the tracker grouping.
 | [#15](https://github.com/konraddzbik/termdesk/issues/15) | CONTRIBUTING.md cites stale electron-builder.yml line numbers |
 | [#16](https://github.com/konraddzbik/termdesk/issues/16) | Linux keyring requirement is easy to miss from README |
 | [#17](https://github.com/konraddzbik/termdesk/issues/17) | Missing C++ toolchain produces opaque node-gyp failures on first npm install |
+| [#27](https://github.com/konraddzbik/termdesk/issues/27) | CONTRIBUTING.md points the better-sqlite3 Node rebuild at ci.yml; it lives in verify.yml |
+| [#28](https://github.com/konraddzbik/termdesk/issues/28) | Uninstall docs omit the vault in OS userData |
+| [#29](https://github.com/konraddzbik/termdesk/issues/29) | SFTP smoke cannot finish inside the 90s runner timeout |
 
 ### Community polish
 
@@ -101,6 +105,8 @@ Milestones with these same three names are the tracker grouping.
 | [#23](https://github.com/konraddzbik/termdesk/issues/23) | Project homepage / security.txt |
 | [#24](https://github.com/konraddzbik/termdesk/issues/24) | Confirm Intel macOS x64 native-module arch check before the first Release attaches that dmg |
 | [#25](https://github.com/konraddzbik/termdesk/issues/25) | Windows/Linux self-update has never been exercised against a real GitHub Release feed |
+| [#30](https://github.com/konraddzbik/termdesk/issues/30) | EULA and CoC point at Discussions / a profile page; the repo has no public question path |
+| [#31](https://github.com/konraddzbik/termdesk/issues/31) | DEPLOYMENT.md promises MSI and an internal update server this client cannot use |
 
 ## First implementation (User install path)
 
@@ -108,7 +114,9 @@ This milestone is the one that changes the outsider setup path:
 
 - `INSTALL.md` / `README.md` / `docs/UPDATING.md` / bug template / updater
   copy now describe from-source as what works, and state that GitHub has no
-  tags and no Releases.
+  tags and no Releases. Unsigned CI package artifacts (14-day Actions
+  retention) are documented as the only current binary download, not as a
+  Release.
 - `src/main/install-contract.ts` is the config-loader. Tests in
   `src/main/install-contract.test.ts` drive the real parser and
   `checkRepoInstallContract` against this checkout. `RELEASED_ARTIFACTS` is
