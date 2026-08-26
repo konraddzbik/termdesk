@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Pre-publication exposure audit
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 is load-bearing. The script's first three checks read
+      # every blob and every added path in ALL history; the default shallow
+      # checkout gives it one commit, so it would pass while examining nothing.
+      # (It refuses to run on a shallow clone rather than lie, but the point is
+      # to keep it from getting there.)
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # No dependencies — plain Node ESM shelling out to git, so no npm ci.
+      - name: Exposure audit
+        run: node scripts/preflight-public.mjs
+
+  verify:
+    name: Verify
+    uses: ./.github/workflows/verify.yml
+
+  package:
+    name: Package (${{ matrix.os }})
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-latest is an Apple Silicon runner; electron-builder.yml builds
+          # both arm64 and x64 macOS artifacts from this single job.
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Linux packaging tools
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libfuse2 fakeroot
+
+      - name: Build installers (unsigned)
+        run: npm run dist
+        env:
+          # CI builds are unsigned; release.yml can sign when secrets are set.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: List artifacts
+        shell: bash
+        run: ls -la dist/
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: termdesk-${{ matrix.platform }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.blockmap
+            dist/latest*.yml
+          retention-days: 14
+          if-no-files-found: error

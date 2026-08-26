@@ -1,0 +1,116 @@
+appId: com.termdesk.app
+productName: TermDesk
+copyright: Copyright © 2026 Konrad Dzbik
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - patches/**
+  - '!out/types/**'
+  # MIT requires its notice to travel "in all copies", and Apache-2.0 / BSD-3 /
+  # MPL-2.0 dependencies carry attribution requirements of their own — so the
+  # notices ship INSIDE the app, not only in the repository. EULA.txt is here
+  # because the packaged build's first-run dialog points at it by name.
+  - LICENSE
+  - THIRD-PARTY-NOTICES.md
+  - EULA.txt
+asar: true
+npmRebuild: true
+
+# Icon: build/icon.png (512×512). electron-builder generates .icns / .ico from it.
+# Source vector: build/icon.svg
+
+# --- Installers (built per host OS in CI / release workflows) ---
+# macOS: .dmg (+ .zip for auto-update metadata)
+# Windows: NSIS setup .exe
+# Linux: AppImage + .deb
+
+mac:
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  icon: build/icon.png
+  # Build for both Apple Silicon (arm64) and Intel (x64) in a single run so a
+  # single latest-mac.yml references both — electron-updater then serves each
+  # Mac the matching artifact. The x64 native module (better-sqlite3) is
+  # cross-built by @electron/rebuild.
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  # Enable after Apple signing secrets are configured (see docs/CODE_SIGNING.md).
+  # notarize: true
+
+# Label both DMGs by arch so the user download is unambiguous; electron-builder
+# otherwise leaves the x64 DMG unsuffixed (TermDesk-<ver>.dmg). Scoped to dmg so
+# the updater zips keep their default `-mac` naming convention.
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # Classic drag-to-install window: app icon on the left, Applications folder on
+  # the right, so opening the .dmg shows the expected install popup.
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 200
+      type: file
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - nsis
+  icon: build/icon.png
+  artifactName: ${productName}-Setup-${version}.${ext}
+  # Self-update publishes to this repository's GitHub Releases — the same
+  # artifacts anyone can download and verify, so no credential is needed to
+  # check for or fetch an update (see src/main/updater.ts). A `beta` preference
+  # in the client maps to GitHub pre-releases rather than a separate feed.
+  publish:
+    # draft: a tag build must never put a live download in front of users before
+    # a human has looked at it. release.yml passes the same value explicitly;
+    # publishing the draft by hand is what turns the update feed on.
+    - provider: github
+      releaseType: draft
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: TermDesk
+
+linux:
+  category: Development
+  maintainer: Konrad Dzbik
+  synopsis: SSH, SFTP, and VNC desktop client
+  icon: build/icon.png
+  target:
+    - AppImage
+    - deb
+  artifactName: ${productName}-${version}.${ext}
+  publish:
+    # draft: a tag build must never put a live download in front of users before
+    # a human has looked at it. release.yml passes the same value explicitly;
+    # publishing the draft by hand is what turns the update feed on.
+    - provider: github
+      releaseType: draft
+
+# NOTE: macOS auto-update is intentionally NOT published yet — Squirrel.Mac
+# refuses to update an unsigned app. Once an Apple Developer ID + notarization
+# are in place, add a `publish` block under `mac:` mirroring the ones above and
+# make platformSegment() in src/main/updater.ts return 'mac' (see
+# docs/UPDATING.md for the full checklist).
+#
+# Publishing to GitHub Releases needs only GH_TOKEN in the build environment:
+#   GH_TOKEN=<token> npx electron-builder --win --linux --publish always

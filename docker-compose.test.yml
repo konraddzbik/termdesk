@@ -1,0 +1,29 @@
+# Local test environment — no real servers needed.
+#   docker compose -f docker-compose.test.yml up -d
+# SSH:  ssh testuser@127.0.0.1 -p 2222  (password: testpass123, or .test/test_key[_enc])
+# VNC:  127.0.0.1:5901 directly, or 127.0.0.1:5901 via the SSH tunnel
+#       (same container), password: testvncpass
+services:
+  ssh:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: termdesk-test-ssh
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - USER_NAME=testuser
+      - USER_PASSWORD=testpass123
+      - PASSWORD_ACCESS=true
+      - PUBLIC_KEY_FILE=/config/test-authorized-keys
+      - SUDO_ACCESS=false
+      - DOCKER_MODS=linuxserver/mods:universal-package-install
+      - INSTALL_PACKAGES=tigervnc|bash
+    volumes:
+      - ./.test/authorized_keys:/config/test-authorized-keys:ro
+      - ./.test/vnc-init.sh:/custom-cont-init.d/90-vnc-init.sh:ro
+    ports:
+      - '127.0.0.1:2222:2222'
+      - '127.0.0.1:5901:5901'
+    # Not `unless-stopped`: this is a password-authenticated SSH+VNC server with
+    # TCP forwarding on. It should not come back by itself after a reboot.
+    restart: "no"

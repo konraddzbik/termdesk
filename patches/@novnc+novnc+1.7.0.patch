@@ -1,0 +1,663 @@
+# ============================================================================
+# Attribution — modification of a third-party MPL-2.0 work
+#
+# Upstream project : noVNC 1.7.0  (npm package @novnc/novnc)
+# Upstream repo    : https://github.com/novnc/noVNC
+# Upstream licence : MPL-2.0 (Mozilla Public License 2.0)
+#
+# The two files patched below, core/ra2.js and core/rfb.js, are part of the
+# noVNC *core library*, which noVNC licenses under MPL-2.0 (see
+# node_modules/@novnc/novnc/LICENSE.txt). Under MPL-2.0 a modification to a
+# covered file stays under MPL-2.0, and the modified Source Code Form must be
+# made available to recipients of the binary. This patch is that modification,
+# and publishing it in this repository is how that requirement is met: while
+# the repository was private, the shipped TermDesk binaries contained modified
+# MPL-2.0 files whose source was not publicly available. Keeping this file in
+# a public repository fixes that.
+#
+# The patch is applied by patch-package during `npm install` (see the
+# `postinstall` script in package.json). It is not upstreamed; TermDesk is not
+# affiliated with the noVNC project.
+#
+# What it changes
+# ---------------
+# 1. RealVNC RSA-AES support. Upstream 1.7.0 implements only security type 6
+#    (RA2ne — RSA-AES with the session left in cleartext). This adds type 5
+#    (RA2) and type 13 (RA2 two-step), which RealVNC servers offer and which
+#    encrypt the whole session, not just authentication.
+# 2. A new exported `RA2EncryptedChannel` class in core/ra2.js that wraps the
+#    Websock instance so post-authentication traffic is AES-EAX encrypted on
+#    send and decrypted on receive. It intercepts both `Websock._recvMessage`
+#    and the underlying `WebSocket.onmessage` handler, because Websock binds
+#    `onmessage` once at attach time.
+# 3. A bug fix in the upstream Web Crypto call: `importKey` was passed the
+#    single malformed key-usage string `["encrypt, decrypt"]` instead of the
+#    two usages `["encrypt", "decrypt"]`.
+# 4. Outbound RA2 messages are chunked at `MAX_RA2_MESSAGE` = 8192 bytes, so a
+#    large write cannot exceed the 16-bit RA2 message length field.
+# 5. Security-type selection changes from "first type the *server* prefers" to
+#    an explicit *client* preference list (`RFB._pickSecurityType`): RA2 (5),
+#    two-step (13), RA2ne (6), VNC auth (2), Tight (16), VeNCrypt (19), XVP,
+#    ARD, MSLogonII, Plain, and None (1) LAST. This is a behaviour change for
+#    every connection, not only RA2 ones.
+#
+#    Because this list overrides the server's own ordering, a weak entry placed
+#    high is a downgrade on every honest connection, not only an attacked one.
+#    An earlier revision of this patch listed None first among the non-RA2
+#    types, so a server configured as e.g. `SecurityTypes=VeNCrypt,None` — which
+#    offers None for a reason but prefers VeNCrypt — got None: no authentication,
+#    no encryption, and the RA2 server-key pin never consulted. None is now last;
+#    it is the only entry that provides neither authentication nor encryption.
+#
+#    VNC auth is deliberately kept ABOVE VeNCrypt, which looks backwards and is
+#    not. noVNC 1.7.0 implements no TLS-wrapped VeNCrypt subtype: its
+#    `_isSupportedSecurityType` accepts only None, VNC auth and Plain inside a
+#    VeNCrypt handshake, and it takes whichever of those the *server* lists
+#    first. Plain (`_negotiatePlainAuth`) pushes the username and password as
+#    length-prefixed cleartext. VNC auth is a DES-56 challenge-response — weak,
+#    but the password is never put on the wire. Promoting VeNCrypt here would
+#    therefore trade a weak-but-non-transmitting scheme for one that can hand
+#    the password over in the clear. Revisit only if a VeNCrypt subtype that
+#    actually negotiates TLS is implemented.
+#
+# 6. A new `ClientInitialisationFlush` init state, plus a narrow relaxation of
+#    the "handleMessage called on an empty receive queue" warning, so that the
+#    asynchronous encryption of the ClientInit byte completes before the client
+#    starts waiting for ServerInit.
+# 7. Diagnostic events for the host application: `securitytype` (which type was
+#    negotiated), `ra2phase` (credentials-sent / security-result-ok /
+#    channel-enabled) and `rfberror` (the failure message that upstream only
+#    logs).
+# ============================================================================
+diff --git a/node_modules/@novnc/novnc/core/ra2.js b/node_modules/@novnc/novnc/core/ra2.js
+index d330b84..574eeaa 100644
+--- a/node_modules/@novnc/novnc/core/ra2.js
++++ b/node_modules/@novnc/novnc/core/ra2.js
+@@ -2,15 +2,21 @@ import { encodeUTF8 } from './util/strings.js';
+ import EventTargetMixin from './util/eventtarget.js';
+ import legacyCrypto from './crypto/crypto.js';
+ 
++const MAX_RA2_MESSAGE = 8192;
++
+ class RA2Cipher {
+     constructor() {
+         this._cipher = null;
+         this._counter = new Uint8Array(16);
+     }
+ 
++    resetCounter() {
++        this._counter = new Uint8Array(16);
++    }
++
+     async setKey(key) {
+         this._cipher = await legacyCrypto.importKey(
+-            "raw", key, { name: "AES-EAX" }, false, ["encrypt, decrypt"]);
++            "raw", key, { name: "AES-EAX" }, false, ["encrypt", "decrypt"]);
+     }
+ 
+     async makeMessage(message) {
+@@ -39,8 +45,166 @@ class RA2Cipher {
+     }
+ }
+ 
++async function deriveSessionKeys(clientRandom, serverRandom) {
++    let clientSessionKey = new Uint8Array(32);
++    let serverSessionKey = new Uint8Array(32);
++    clientSessionKey.set(serverRandom);
++    clientSessionKey.set(clientRandom, 16);
++    serverSessionKey.set(clientRandom);
++    serverSessionKey.set(serverRandom, 16);
++    clientSessionKey = await window.crypto.subtle.digest("SHA-1", clientSessionKey);
++    clientSessionKey = new Uint8Array(clientSessionKey).slice(0, 16);
++    serverSessionKey = await window.crypto.subtle.digest("SHA-1", serverSessionKey);
++    serverSessionKey = new Uint8Array(serverSessionKey).slice(0, 16);
++    return { clientSessionKey, serverSessionKey };
++}
++
++export class RA2EncryptedChannel {
++    constructor(sock, clientCipher, serverCipher, onError) {
++        this._sock = sock;
++        this._clientCipher = clientCipher;
++        this._serverCipher = serverCipher;
++        this._onError = onError || (() => {});
++        this._encryptedBuf = new Uint8Array(0);
++        this._decryptChain = Promise.resolve();
++        this._flushChain = Promise.resolve();
++        this._origRecvMessage = null;
++        this._origFlush = null;
++        this._origWebSocketOnMessage = null;
++        this._boundChannelRecv = null;
++        this._enabled = false;
++    }
++
++    enable() {
++        if (this._enabled) {
++            return;
++        }
++        this._enabled = true;
++        this._origRecvMessage = this._sock._recvMessage.bind(this._sock);
++        this._origFlush = this._sock.flush.bind(this._sock);
++        // Websock.attach() binds onmessage once; overriding _recvMessage alone
++        // does not intercept further frames — patch the WebSocket handler too.
++        this._boundChannelRecv = (e) => this._recvMessage(e);
++        this._sock._recvMessage = this._boundChannelRecv;
++        if (this._sock._websocket !== null) {
++            this._origWebSocketOnMessage = this._sock._websocket.onmessage;
++            this._sock._websocket.onmessage = this._boundChannelRecv;
++        }
++        this._sock.flush = this._flush.bind(this);
++    }
++
++    disable() {
++        if (!this._enabled) {
++            return;
++        }
++        this._enabled = false;
++        if (this._sock._websocket !== null && this._origWebSocketOnMessage !== null) {
++            this._sock._websocket.onmessage = this._origWebSocketOnMessage;
++            this._origWebSocketOnMessage = null;
++        }
++        if (this._origRecvMessage !== null) {
++            this._sock._recvMessage = this._origRecvMessage;
++            this._origRecvMessage = null;
++        }
++        this._boundChannelRecv = null;
++        if (this._origFlush !== null) {
++            this._sock.flush = this._origFlush;
++            this._origFlush = null;
++        }
++    }
++
++    async adoptPendingRawBytes() {
++        const pending = this._sock.rQlen();
++        if (pending > 0) {
++            this._appendEncrypted(this._sock.rQshiftBytes(pending));
++        }
++        // SecurityResult may already be mid-decrypt in encryptedBuf (arrived
++        // between enable() and this call) — always drain before SecurityResult.
++        await this._decryptChain;
++        await this._decryptAvailable(false);
++    }
++
++    _appendEncrypted(bytes) {
++        const merged = new Uint8Array(this._encryptedBuf.length + bytes.length);
++        merged.set(this._encryptedBuf);
++        merged.set(bytes, this._encryptedBuf.length);
++        this._encryptedBuf = merged;
++    }
++
++    _scheduleDecrypt() {
++        this._decryptChain = this._decryptChain
++            .then(() => this._decryptAvailable())
++            .catch((e) => this._onError(e));
++    }
++
++    async _decryptAvailable(notify = true) {
++        while (this._encryptedBuf.length >= 2) {
++            const msgLen = (this._encryptedBuf[0] << 8) | this._encryptedBuf[1];
++            const totalLen = 2 + msgLen + 16;
++            if (this._encryptedBuf.length < totalLen) {
++                break;
++            }
++            const encrypted = this._encryptedBuf.slice(2, totalLen);
++            this._encryptedBuf = this._encryptedBuf.slice(totalLen);
++            const decrypted = await this._serverCipher.receiveMessage(
++                msgLen, encrypted);
++            if (decrypted === null) {
++                throw new Error("RA2: failed to decrypt session message");
++            }
++            this._pushPlaintext(decrypted, notify);
++        }
++    }
++
++    _pushPlaintext(bytes, notify = true) {
++        if (bytes.length > this._sock._rQbufferSize - this._sock._rQlen) {
++            this._sock._expandCompactRQ(bytes.length);
++        }
++        this._sock._rQ.set(bytes, this._sock._rQlen);
++        this._sock._rQlen += bytes.length;
++        if (notify) {
++            this._sock._eventHandlers.message();
++        }
++    }
++
++    _recvMessage(e) {
++        if (e.data.byteLength > 0) {
++            this._appendEncrypted(new Uint8Array(e.data));
++            this._scheduleDecrypt();
++        }
++    }
++
++    _flush() {
++        if (this._sock._sQlen === 0 || this._sock.readyState !== 'open') {
++            return;
++        }
++        const plain = this._sock._sQ.slice(0, this._sock._sQlen);
++        this._sock._sQlen = 0;
++        this._flushChain = this._flushChain
++            .then(() => this._doFlush(plain))
++            .catch((e) => this._onError(e));
++    }
++
++    async _doFlush(plain) {
++        let offset = 0;
++        while (offset < plain.length) {
++            const chunk = plain.subarray(offset, offset + MAX_RA2_MESSAGE);
++            offset += chunk.length;
++            const encrypted = await this._clientCipher.makeMessage(chunk);
++            this._sock._websocket.send(encrypted);
++        }
++    }
++
++    waitForPending() {
++        return this._flushChain;
++    }
++
++    waitForDecrypt() {
++        return this._decryptChain;
++    }
++}
++
+ export default class RSAAESAuthenticationState extends EventTargetMixin {
+-    constructor(sock, getCredentials) {
++    constructor(sock, getCredentials, securityType) {
+         super();
+         this._hasStarted = false;
+         this._checkSock = null;
+@@ -51,6 +215,7 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
+         this._approveServerReject = null;
+         this._sock = sock;
+         this._getCredentials = getCredentials;
++        this._securityType = securityType;
+     }
+ 
+     _waitSockAsync(len) {
+@@ -135,8 +300,54 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
+         }
+     }
+ 
+-    async negotiateRA2neAuthAsync() {
++    async _readEncryptedMessage(serverCipher, expectedLen) {
++        await this._waitSockAsync(2 + expectedLen + 16);
++        if (this._sock.rQshift16() !== expectedLen) {
++            throw new Error("RA2: wrong encrypted message length (expected " +
++                            expectedLen + ")");
++        }
++        const payload = await serverCipher.receiveMessage(
++            expectedLen, this._sock.rQshiftBytes(expectedLen + 16));
++        if (payload === null) {
++            throw new Error("RA2: failed to decrypt message");
++        }
++        return payload;
++    }
++
++    async _readSecondServerRandom(serverCipher) {
++        const serverRandom = await this._readEncryptedMessage(serverCipher, 16);
++        if (serverRandom.length !== 16) {
++            throw new Error("RA2: corrupted second-round server random");
++        }
++        return serverRandom;
++    }
++
++    async _secondKeyRound(clientCipher, serverCipher) {
++        // RA2r: after credentials the server sends its random first.
++        const serverRandom = await this._readSecondServerRandom(serverCipher);
++        const clientRandom = new Uint8Array(16);
++        window.crypto.getRandomValues(clientRandom);
++        this._sock.sQpushBytes(await clientCipher.makeMessage(clientRandom));
++        this._sock.flush();
++
++        const { clientSessionKey, serverSessionKey } = await deriveSessionKeys(
++            clientRandom, serverRandom);
++        const nextClientCipher = new RA2Cipher();
++        await nextClientCipher.setKey(clientSessionKey);
++        const nextServerCipher = new RA2Cipher();
++        await nextServerCipher.setKey(serverSessionKey);
++        return { clientCipher: nextClientCipher, serverCipher: nextServerCipher };
++    }
++
++    async negotiateRA2AuthAsync() {
+         this._hasStarted = true;
++        const securityTypeRA2 = 5;
++        const securityTypeRA2ne = 6;
++        const securityTypeRA2TwoStep = 13;
++        const allEncrypted = this._securityType === securityTypeRA2 ||
++            this._securityType === securityTypeRA2TwoStep;
++        const twoStep = this._securityType === securityTypeRA2TwoStep;
++
+         // 1: Receive server public key
+         await this._waitSockAsync(4);
+         const serverKeyLengthBuffer = this._sock.rQpeekBytes(4);
+@@ -210,19 +421,11 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
+         }
+ 
+         // 5: Compute session keys and set ciphers
+-        let clientSessionKey = new Uint8Array(32);
+-        let serverSessionKey = new Uint8Array(32);
+-        clientSessionKey.set(serverRandom);
+-        clientSessionKey.set(clientRandom, 16);
+-        serverSessionKey.set(clientRandom);
+-        serverSessionKey.set(serverRandom, 16);
+-        clientSessionKey = await window.crypto.subtle.digest("SHA-1", clientSessionKey);
+-        clientSessionKey = new Uint8Array(clientSessionKey).slice(0, 16);
+-        serverSessionKey = await window.crypto.subtle.digest("SHA-1", serverSessionKey);
+-        serverSessionKey = new Uint8Array(serverSessionKey).slice(0, 16);
+-        const clientCipher = new RA2Cipher();
++        const { clientSessionKey, serverSessionKey } = await deriveSessionKeys(
++            clientRandom, serverRandom);
++        let clientCipher = new RA2Cipher();
+         await clientCipher.setKey(clientSessionKey);
+-        const serverCipher = new RA2Cipher();
++        let serverCipher = new RA2Cipher();
+         await serverCipher.setKey(serverSessionKey);
+ 
+         // 6: Compute and exchange hashes
+@@ -300,6 +503,41 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
+         }
+         this._sock.sQpushBytes(await clientCipher.makeMessage(credentials));
+         this._sock.flush();
++        this.dispatchEvent(new CustomEvent(
++            "ra2phase", { detail: { phase: "credentials-sent" } }));
++
++        if (twoStep) {
++            ({ clientCipher, serverCipher } = await this._secondKeyRound(
++                clientCipher, serverCipher));
++        }
++
++        if (allEncrypted) {
++            // Read encrypted SecurityResult while auth still drives checkInternalEvents
++            // on incoming bytes — deferring to RA2EncryptedChannel left it stuck at 868B.
++            const statusBuf = await this._readEncryptedMessage(serverCipher, 4);
++            const status = (statusBuf[0] << 24) | (statusBuf[1] << 16) |
++                           (statusBuf[2] << 8) | statusBuf[3];
++            if (status !== 0) {
++                throw new Error("RA2: authentication failed (status " + status + ")");
++            }
++            this.dispatchEvent(new CustomEvent(
++                "ra2phase", { detail: { phase: "security-result-ok" } }));
++            return {
++                allEncrypted: true,
++                clientCipher,
++                serverCipher,
++                skipSecurityResult: true,
++            };
++        }
++        if (this._securityType === securityTypeRA2ne) {
++            return { allEncrypted: false };
++        }
++        throw new Error("RA2: unsupported security type " + this._securityType);
++    }
++
++    // Backwards-compatible alias used by older patches.
++    async negotiateRA2neAuthAsync() {
++        return this.negotiateRA2AuthAsync();
+     }
+ 
+     get hasStarted() {
+diff --git a/node_modules/@novnc/novnc/core/rfb.js b/node_modules/@novnc/novnc/core/rfb.js
+index 80011e4..b3ef5dd 100644
+--- a/node_modules/@novnc/novnc/core/rfb.js
++++ b/node_modules/@novnc/novnc/core/rfb.js
+@@ -24,7 +24,7 @@ import Websock from "./websock.js";
+ import KeyTable from "./input/keysym.js";
+ import XtScancode from "./input/xtscancodes.js";
+ import { encodings } from "./encodings.js";
+-import RSAAESAuthenticationState from "./ra2.js";
++import RSAAESAuthenticationState, { RA2EncryptedChannel } from "./ra2.js";
+ import legacyCrypto from "./crypto/crypto.js";
+ 
+ import RawDecoder from "./decoders/raw.js";
+@@ -58,7 +58,9 @@ const DOUBLE_TAP_THRESHOLD = 50;
+ // Security types
+ const securityTypeNone              = 1;
+ const securityTypeVNCAuth           = 2;
+-const securityTypeRA2ne             = 6;
++const securityTypeRA2               = 5;   // RSA-AES (RealVNC)
++const securityTypeRA2ne             = 6;   // RSA-AES unencrypted
++const securityTypeRA2TwoStep        = 13;  // RSA-AES two-step (RealVNC)
+ const securityTypeTight             = 16;
+ const securityTypeVeNCrypt          = 19;
+ const securityTypeXVP               = 22;
+@@ -126,6 +128,7 @@ export default class RFB extends EventTargetMixin {
+         this._rfbAuthScheme = -1;
+         this._rfbCleanDisconnect = true;
+         this._rfbRSAAESAuthenticationState = null;
++        this._ra2EncryptedChannel = null;
+ 
+         // Server capabilities
+         this._rfbVersion = 0;
+@@ -210,6 +213,7 @@ export default class RFB extends EventTargetMixin {
+             handleGesture: this._handleGesture.bind(this),
+             handleRSAAESCredentialsRequired: this._handleRSAAESCredentialsRequired.bind(this),
+             handleRSAAESServerVerification: this._handleRSAAESServerVerification.bind(this),
++            handleRSAAESPhase: this._handleRSAAESPhase.bind(this),
+         };
+ 
+         // main setup
+@@ -423,6 +427,10 @@ export default class RFB extends EventTargetMixin {
+         if (this._rfbRSAAESAuthenticationState !== null) {
+             this._rfbRSAAESAuthenticationState.disconnect();
+         }
++        if (this._ra2EncryptedChannel !== null) {
++            this._ra2EncryptedChannel.disable();
++            this._ra2EncryptedChannel = null;
++        }
+     }
+ 
+     approveServer() {
+@@ -968,6 +976,8 @@ export default class RFB extends EventTargetMixin {
+                 break;
+         }
+         this._rfbCleanDisconnect = false; //This is sent to the UI
++        this.dispatchEvent(new CustomEvent(
++            "rfberror", { detail: { message: details } }));
+ 
+         // Transition to disconnected without waiting for socket to close
+         this._updateConnectionState('disconnecting');
+@@ -984,8 +994,12 @@ export default class RFB extends EventTargetMixin {
+ 
+     _handleMessage() {
+         if (this._sock.rQwait("message", 1)) {
+-            Log.Warn("handleMessage called on an empty receive queue");
+-            return;
++            // ClientInitialisation only sends ClientInit (RA2 encrypts it outbound).
++            if (this._rfbConnectionState !== 'connecting' ||
++                this._rfbInitState !== 'ClientInitialisation') {
++                Log.Warn("handleMessage called on an empty receive queue");
++                return;
++            }
+         }
+ 
+         switch (this._rfbConnectionState) {
+@@ -1550,7 +1564,9 @@ export default class RFB extends EventTargetMixin {
+         const clientTypes = [
+             securityTypeNone,
+             securityTypeVNCAuth,
++            securityTypeRA2,
+             securityTypeRA2ne,
++            securityTypeRA2TwoStep,
+             securityTypeTight,
+             securityTypeVeNCrypt,
+             securityTypeXVP,
+@@ -1562,6 +1578,30 @@ export default class RFB extends EventTargetMixin {
+         return clientTypes.includes(type);
+     }
+ 
++    _pickSecurityType(types) {
++        // Prefer RSA-AES (5) over two-step (13) when both are offered — we
++        // implement both, but type 5 is simpler and avoids an extra key round.
++        const preference = [
++            securityTypeRA2,
++            securityTypeRA2TwoStep,
++            securityTypeRA2ne,
++            securityTypeVNCAuth,
++            securityTypeTight,
++            securityTypeVeNCrypt,
++            securityTypeXVP,
++            securityTypeARD,
++            securityTypeMSLogonII,
++            securityTypePlain,
++            securityTypeNone,
++        ];
++        for (const preferred of preference) {
++            if (types.includes(preferred)) {
++                return preferred;
++            }
++        }
++        return -1;
++    }
++
+     _negotiateSecurity() {
+         if (this._rfbVersion >= 3.7) {
+             // Server sends supported list, client decides
+@@ -1578,15 +1618,7 @@ export default class RFB extends EventTargetMixin {
+             const types = this._sock.rQshiftBytes(numTypes);
+             Log.Debug("Server security types: " + types);
+ 
+-            // Look for a matching security type in the order that the
+-            // server prefers
+-            this._rfbAuthScheme = -1;
+-            for (let type of types) {
+-                if (this._isSupportedSecurityType(type)) {
+-                    this._rfbAuthScheme = type;
+-                    break;
+-                }
+-            }
++            this._rfbAuthScheme = this._pickSecurityType(types);
+ 
+             if (this._rfbAuthScheme === -1) {
+                 return this._fail("Unsupported security types (types: " + types + ")");
+@@ -1594,6 +1626,9 @@ export default class RFB extends EventTargetMixin {
+ 
+             this._sock.sQpush8(this._rfbAuthScheme);
+             this._sock.flush();
++            Log.Debug("Selected security type: " + this._rfbAuthScheme);
++            this.dispatchEvent(new CustomEvent(
++                "securitytype", { detail: { type: this._rfbAuthScheme } }));
+         } else {
+             // Server decides
+             if (this._sock.rQwait("security scheme", 4)) { return false; }
+@@ -1996,30 +2031,59 @@ export default class RFB extends EventTargetMixin {
+         this.dispatchEvent(event);
+     }
+ 
++    _handleRSAAESPhase(event) {
++        this.dispatchEvent(event);
++    }
++
+     _negotiateRA2neAuth() {
+         if (this._rfbRSAAESAuthenticationState === null) {
+-            this._rfbRSAAESAuthenticationState = new RSAAESAuthenticationState(this._sock, () => this._rfbCredentials);
++            this._rfbRSAAESAuthenticationState = new RSAAESAuthenticationState(
++                this._sock, () => this._rfbCredentials, this._rfbAuthScheme);
+             this._rfbRSAAESAuthenticationState.addEventListener(
+                 "serververification", this._eventHandlers.handleRSAAESServerVerification);
+             this._rfbRSAAESAuthenticationState.addEventListener(
+                 "credentialsrequired", this._eventHandlers.handleRSAAESCredentialsRequired);
++            this._rfbRSAAESAuthenticationState.addEventListener(
++                "ra2phase", this._eventHandlers.handleRSAAESPhase);
+         }
+         this._rfbRSAAESAuthenticationState.checkInternalEvents();
+         if (!this._rfbRSAAESAuthenticationState.hasStarted) {
+-            this._rfbRSAAESAuthenticationState.negotiateRA2neAuthAsync()
++            this._rfbRSAAESAuthenticationState.negotiateRA2AuthAsync()
++                .then(async (result) => {
++                    if (result && result.allEncrypted) {
++                        const onRa2Error = (e) => {
++                            if (e.message !== "disconnect normally") {
++                                this._fail(e.message);
++                            }
++                        };
++                        this._ra2EncryptedChannel = new RA2EncryptedChannel(
++                            this._sock, result.clientCipher, result.serverCipher,
++                            onRa2Error);
++                        this._ra2EncryptedChannel.enable();
++                        await this._ra2EncryptedChannel.adoptPendingRawBytes();
++                        this.dispatchEvent(new CustomEvent(
++                            "ra2phase", { detail: { phase: "channel-enabled" } }));
++                    }
++                    if (result && result.skipSecurityResult) {
++                        this._rfbInitState = 'ClientInitialisation';
++                    } else {
++                        this._rfbInitState = "SecurityResult";
++                    }
++                    this._handleMessage();
++                    return true;
++                })
+                 .catch((e) => {
+                     if (e.message !== "disconnect normally") {
+                         this._fail(e.message);
+                     }
+                 })
+-                .then(() => {
+-                    this._rfbInitState = "SecurityResult";
+-                    return true;
+-                }).finally(() => {
++                .finally(() => {
+                     this._rfbRSAAESAuthenticationState.removeEventListener(
+                         "serververification", this._eventHandlers.handleRSAAESServerVerification);
+                     this._rfbRSAAESAuthenticationState.removeEventListener(
+                         "credentialsrequired", this._eventHandlers.handleRSAAESCredentialsRequired);
++                    this._rfbRSAAESAuthenticationState.removeEventListener(
++                        "ra2phase", this._eventHandlers.handleRSAAESPhase);
+                     this._rfbRSAAESAuthenticationState = null;
+                 });
+         }
+@@ -2100,7 +2164,9 @@ export default class RFB extends EventTargetMixin {
+             case securityTypeUnixLogon:
+                 return this._negotiateTightUnixAuth();
+ 
++            case securityTypeRA2:
+             case securityTypeRA2ne:
++            case securityTypeRA2TwoStep:
+                 return this._negotiateRA2neAuth();
+ 
+             case securityTypeMSLogonII:
+@@ -2120,6 +2186,10 @@ export default class RFB extends EventTargetMixin {
+         if (status === 0) { // OK
+             this._rfbInitState = 'ClientInitialisation';
+             Log.Debug('Authentication OK');
++            if (this._ra2EncryptedChannel !== null) {
++                this.dispatchEvent(new CustomEvent(
++                    "ra2phase", { detail: { phase: "security-result-ok" } }));
++            }
+             return true;
+         } else {
+             if (this._rfbVersion >= 3.8) {
+@@ -2275,6 +2345,7 @@ export default class RFB extends EventTargetMixin {
+      *   Authentication
+      *   SecurityResult
+      *   ClientInitialization - not triggered by server message
++     *   ClientInitialisationFlush - waiting for encrypted ClientInit send
+      *   ServerInitialization
+      */
+     _initMsg() {
+@@ -2297,9 +2368,28 @@ export default class RFB extends EventTargetMixin {
+             case 'ClientInitialisation':
+                 this._sock.sQpush8(this._shared ? 1 : 0); // ClientInitialisation
+                 this._sock.flush();
++                // RA2 type 5/13 encrypts ClientInit asynchronously; the server
++                // won't send ServerInit until it receives that byte.
++                if (this._ra2EncryptedChannel !== null) {
++                    this._rfbInitState = 'ClientInitialisationFlush';
++                    this._ra2EncryptedChannel.waitForPending()
++                        .then(() => {
++                            this._rfbInitState = 'ServerInitialisation';
++                            this._handleMessage();
++                        })
++                        .catch((e) => {
++                            if (e.message !== "disconnect normally") {
++                                this._fail(e.message);
++                            }
++                        });
++                    return false;
++                }
+                 this._rfbInitState = 'ServerInitialisation';
+                 return true;
+ 
++            case 'ClientInitialisationFlush':
++                return false;
++
+             case 'ServerInitialisation':
+                 return this._negotiateServerInit();
+ 

@@ -1,0 +1,26 @@
+# Matches biome.json (2-space indent, 100-column lines) so an editor that reads
+# this and a `npm run lint` never disagree about a file.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+max_line_length = 100
+
+[*.md]
+# Two trailing spaces are a hard line break in Markdown.
+trim_trailing_whitespace = false
+
+[*.{patch,diff}]
+# Trailing whitespace is significant in a diff's context lines.
+trim_trailing_whitespace = false
+insert_final_newline = false
+indent_style = unset
+indent_size = unset
+
+[Makefile]
+indent_style = tab

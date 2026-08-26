@@ -1,0 +1,54 @@
+# ============================================================================
+# Attribution — modification of a third-party MIT work
+#
+# Upstream project : better-sqlite3 12.10.0
+# Upstream repo    : https://github.com/WiseLibs/better-sqlite3
+# Upstream licence : MIT (see node_modules/better-sqlite3/LICENSE)
+#
+# A compile fix only, applied by patch-package during `npm install`. The V8 API
+# shipped with the Electron version this project builds against requires an
+# explicit external-pointer tag on `v8::External::New` / `v8::External::Value`
+# (`v8::kExternalPointerTypeTagDefault`), and a real `nullptr` rather than `0`
+# for the setter argument of `SetNativeDataProperty`. Without these three edits
+# the native addon does not build. No runtime, API or security behaviour of
+# better-sqlite3 changes.
+# ============================================================================
+diff --git a/node_modules/better-sqlite3/src/better_sqlite3.cpp b/node_modules/better-sqlite3/src/better_sqlite3.cpp
+index 13f054a..c50992a 100644
+--- a/node_modules/better-sqlite3/src/better_sqlite3.cpp
++++ b/node_modules/better-sqlite3/src/better_sqlite3.cpp
+@@ -57,7 +57,7 @@ NODE_MODULE_INIT(/* exports, context */) {
+ 
+ 	// Initialize addon instance.
+ 	Addon* addon = new Addon(isolate);
+-	v8::Local<v8::External> data = v8::External::New(isolate, addon);
++	v8::Local<v8::External> data = v8::External::New(isolate, addon, v8::kExternalPointerTypeTagDefault);
+ 	node::AddEnvironmentCleanupHook(isolate, Addon::Cleanup, addon);
+ 
+ 	// Create and export native-backed classes and functions.
+diff --git a/node_modules/better-sqlite3/src/util/helpers.cpp b/node_modules/better-sqlite3/src/util/helpers.cpp
+index f777152..db7fd9f 100644
+--- a/node_modules/better-sqlite3/src/util/helpers.cpp
++++ b/node_modules/better-sqlite3/src/util/helpers.cpp
+@@ -89,7 +89,7 @@ void SetPrototypeGetter(
+ 	recv->InstanceTemplate()->SetNativeDataProperty(
+ 		InternalizedFromLatin1(isolate, name),
+ 		func,
+-		0,
++		nullptr,
+ 		data
+ 	);
+ }
+diff --git a/node_modules/better-sqlite3/src/util/macros.cpp b/node_modules/better-sqlite3/src/util/macros.cpp
+index e75d537..a6d85b7 100644
+--- a/node_modules/better-sqlite3/src/util/macros.cpp
++++ b/node_modules/better-sqlite3/src/util/macros.cpp
+@@ -27,7 +27,7 @@
+ #define EasyIsolate v8::Isolate* isolate = v8::Isolate::GetCurrent()
+ #define OnlyIsolate info.GetIsolate()
+ #define OnlyContext isolate->GetCurrentContext()
+-#define OnlyAddon static_cast<Addon*>(info.Data().As<v8::External>()->Value())
++#define OnlyAddon static_cast<Addon*>(info.Data().As<v8::External>()->Value(v8::kExternalPointerTypeTagDefault))
+ #define UseIsolate v8::Isolate* isolate = OnlyIsolate
+ #define UseContext v8::Local<v8::Context> ctx = OnlyContext
+ #define UseAddon Addon* addon = OnlyAddon

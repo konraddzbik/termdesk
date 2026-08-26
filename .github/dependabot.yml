@@ -1,0 +1,57 @@
+# Dependabot configuration.
+#
+# The intent is a queue that stays reviewable: routine dev-dependency patch/minor bumps
+# arrive as one grouped PR, and everything that can break a build or a packaged binary
+# arrives on its own so it can be looked at properly.
+#
+# Reviewed individually, never grouped:
+#   - electron / electron-builder — an Electron major changes the Node ABI, so every native
+#     module has to be rebuilt, and electron-builder changes affect packaging and the
+#     per-arch native-module check in release.yml.
+#   - better-sqlite3, node-pty, ssh2 — native or protocol-critical. better-sqlite3 and
+#     node-pty are compiled against Electron's ABI at postinstall (and better-sqlite3 has
+#     to be rebuilt for the Node ABI before vitest can load it); ssh2 carries the crypto
+#     bindings whose per-arch build is already a known problem on macOS x64.
+#   - @novnc/novnc and better-sqlite3 also carry patch-package patches pinned to an exact
+#     version (see patches/). A bump makes the patch fail to apply until it is refreshed,
+#     which breaks `npm install` — expect to update the patch in the same PR.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      dev-dependencies:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - patch
+          - minor
+        exclude-patterns:
+          - electron
+          - electron-builder
+          - electron-vite
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

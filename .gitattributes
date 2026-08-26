@@ -1,0 +1,26 @@
+# Normalize to LF in the repository; check out with the platform's convention.
+* text=auto
+
+# These must be LF in the working tree on every platform, Windows included.
+#
+#   patches/*.patch  patch-package matches context lines byte for byte, so a
+#                    CRLF checkout makes `npm install` fail to apply them — and
+#                    the better-sqlite3 patch is what lets the app compile at all.
+#   *.sh             .test/vnc-init.sh is mounted into a Linux container, where
+#                    a CRLF shebang fails with a bare "no such file or directory".
+#   *.mjs            the build/CI scripts run under Node on all three platforms.
+patches/*.patch text eol=lf
+*.sh            text eol=lf
+*.mjs           text eol=lf
+.nvmrc          text eol=lf
+
+# Binary — never touch, never diff as text.
+*.png  binary
+*.icns binary
+*.ico  binary
+
+# Collapse generated/vendored bulk in review UIs and keep it out of language
+# stats — but WITHOUT `-diff`, which marks a file binary: a lockfile and a patch
+# are exactly the things a reviewer sometimes has to read line by line.
+package-lock.json  linguist-generated
+patches/*.patch    linguist-vendored

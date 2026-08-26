@@ -1,0 +1,92 @@
+{
+  "name": "termdesk",
+  "version": "0.4.0",
+  "description": "Cross-platform SSH + SFTP + VNC + RDP desktop client",
+  "main": "./out/main/index.js",
+  "author": "Konrad Dzbik",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/konraddzbik/termdesk.git"
+  },
+  "homepage": "https://github.com/konraddzbik/termdesk#readme",
+  "bugs": {
+    "url": "https://github.com/konraddzbik/termdesk/issues"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:smoke": "node scripts/run-smoke.mjs",
+    "test:keys": "node scripts/gen-test-keys.mjs",
+    "start": "electron-vite preview",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:publish": "npm run build && electron-builder --publish always",
+    "postinstall": "patch-package && electron-builder install-app-deps && node scripts/fix-node-pty-perms.mjs",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/ssh2": "^1.15.5",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "drizzle-kit": "^0.31.10",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^30.0.1",
+    "patch-package": "^8.0.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.5",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "@devolutions/iron-remote-desktop": "^0.11.0",
+    "@devolutions/iron-remote-desktop-rdp": "^0.7.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@novnc/novnc": "^1.7.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-search": "^0.16.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "better-sqlite3": "^12.10.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "drizzle-orm": "^0.45.2",
+    "electron-updater": "^6.3.9",
+    "lucide-react": "^1.18.0",
+    "node-pty": "^1.1.0",
+    "radix-ui": "^1.5.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "ssh2": "^1.17.0",
+    "tailwind-merge": "^3.6.0",
+    "tw-animate-css": "^1.4.0",
+    "ws": "^8.21.0",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.14"
+  },
+  "overrides": {
+    "cpu-features": "npm:noop2@^2.0.0"
+  }
+}

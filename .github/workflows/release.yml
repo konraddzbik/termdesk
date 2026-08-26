@@ -1,0 +1,215 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual runs build installers and upload them as CI artifacts (downloadable
+  # from the Actions run). A GitHub Release is only created on a tag push.
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # A tag used to build and publish installers without ever running the suite.
+  verify:
+    name: Verify
+    uses: ./.github/workflows/verify.yml
+
+  package:
+    name: Package (${{ matrix.os }})
+    needs: verify
+    strategy:
+      fail-fast: false
+      # Run platforms one at a time: parallel jobs racing to create the same
+      # GitHub Release intermittently hit a 503 ("too many retries"). Serializing
+      # means the first job creates the release and the rest just upload to it.
+      max-parallel: 1
+      matrix:
+        include:
+          # macos-latest is an Apple Silicon runner; electron-builder.yml builds
+          # both arm64 and x64 macOS artifacts (one latest-mac.yml) from this job.
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # A tag whose name disagrees with package.json ships artifacts stamped
+      # with the WRONG version: electron-builder reads package.json, so tagging
+      # v0.4.1 over a 0.4.0 package.json publishes 0.4.0 to the feed and every
+      # installed client sees "no update available". Fail before building.
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          pkg="v$(node -p "require('./package.json').version")"
+          if [ "$pkg" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json ($pkg)"
+            exit 1
+          fi
+          echo "tag and package.json agree: $pkg"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Linux packaging tools
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libfuse2 fakeroot
+
+      # Decide whether a code-signing cert is available for this platform.
+      # Passing an empty CSC_LINK to electron-builder makes it try to sign with
+      # an invalid path ("not a file") and fails the build, so we must branch.
+      - name: Determine signing
+        id: signing
+        shell: bash
+        env:
+          APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          WIN_CERT: ${{ secrets.WIN_CERTIFICATE_BASE64 }}
+        run: |
+          if [ "${{ matrix.platform }}" = "macos" ] && [ -n "$APPLE_CERT" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ matrix.platform }}" = "windows" ] && [ -n "$WIN_CERT" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Publish to GitHub Releases on a tag push
+      # AND the platform has a publish config (win/linux). Otherwise build with
+      # --publish never so the installers are still produced (for the GitHub
+      # Release / CI artifacts) instead of failing.
+      - name: Determine publish
+        id: pub
+        shell: bash
+        run: |
+          # win/linux publish to this repository's GitHub Releases
+          # (electron-builder.yml -> provider: github), which needs only the
+          # workflow's own GITHUB_TOKEN. macOS has no publish config yet — it
+          # builds a .dmg that the Release step below attaches for manual
+          # download, until the app is signed + notarized.
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ matrix.platform }}" != "macos" ]; then
+            echo "flag=always" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=never" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build installers (unsigned)
+        if: steps.signing.outputs.sign == 'false'
+        run: |
+          npm run build
+          npx electron-builder --publish ${{ steps.pub.outputs.flag }} \
+            -c.publish.0.releaseType=draft
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Marks these as the project's own distributed binaries, the only
+          # builds EULA.txt applies to (src/main/build-flags.d.ts).
+          TERMDESK_OFFICIAL_BUILD: '1'
+
+      - name: Build installers (signed)
+        if: steps.signing.outputs.sign == 'true'
+        run: |
+          npm run build
+          npx electron-builder --publish ${{ steps.pub.outputs.flag }} \
+            -c.publish.0.releaseType=draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TERMDESK_OFFICIAL_BUILD: '1'
+          # macOS signing also notarizes when APPLE_* are set and `notarize: true`
+          # is enabled in electron-builder.yml (see docs/CODE_SIGNING.md).
+          CSC_LINK: ${{ matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE_BASE64 || secrets.WIN_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE_PASSWORD || secrets.WIN_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # The mac target cross-builds arm64 + x64 in one run on an Apple Silicon
+      # runner, and nothing guarantees every native module actually got
+      # rebuilt for both. It has silently failed before: the x64 bundle shipped
+      # an arm64 `sshcrypto.node`, which ssh2 loads inside a bare `catch {}` —
+      # so Intel users quietly ran a different cipher path. The same miss on
+      # `better_sqlite3.node` would be a launch crash.
+      - name: Verify packaged native modules match their target arch (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          fail=0
+          check() { # $1 = app bundle, $2 = expected arch
+            while IFS= read -r f; do
+              got="$(lipo -archs "$f" 2>/dev/null || true)"
+              case " $got " in
+                *" $2 "*) ;;
+                *) echo "::error::$f is [$got], expected $2"; fail=1 ;;
+              esac
+            done < <(find "$1/Contents/Resources/app.asar.unpacked" \
+                       -name '*.node' -o -name 'spawn-helper' 2>/dev/null \
+                     | grep -v '/prebuilds/')
+          }
+          [ -d dist/mac-arm64/TermDesk.app ] && check dist/mac-arm64/TermDesk.app arm64
+          [ -d dist/mac/TermDesk.app ] && check dist/mac/TermDesk.app x86_64
+          exit $fail
+
+      - name: Upload platform artifacts (best-effort)
+        # Non-fatal: if the account's Actions artifact storage quota is exhausted
+        # the upload fails, but the build already succeeded and the tag path below
+        # delivers via the Release (separate storage) — so don't fail the run.
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: termdesk-${{ matrix.platform }}
+          # Only the user-facing installers — the update-feed .zip/.blockmap/.yml
+          # are attached to the GitHub Release below and would bloat CI artifact storage.
+          path: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+          retention-days: 14
+          if-no-files-found: warn
+
+      # On a tag push, upload THIS platform's installers straight to the GitHub
+      # Release. Release assets use separate (free) storage, so this succeeds even
+      # when the Actions artifact quota is exhausted. Created as a DRAFT — not
+      # published until you choose to (and on a private repo it is collaborator-only
+      # regardless). softprops appends assets to the same release across all 3 jobs.
+      - name: Publish installers to GitHub Release (draft)
+        if: startsWith(github.ref, 'refs/tags/')
+        # Pinned to a commit: a floating tag on a third-party action that holds
+        # contents:write can be repointed at new code without review, and this
+        # job attaches the installers users download.
+        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3.0.2
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: false
+          files: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+
+  # Note: installers are attached to the GitHub Release directly by each platform
+  # job above (quota-proof, separate storage). On a tag push they land on a DRAFT
+  # release — both paths that touch it agree on that: electron-builder is invoked
+  # with `releaseType=draft` and the upload step passes `draft: true`. Nothing
+  # reaches users, and nothing reaches the electron-updater feed, until you
+  # publish the draft by hand; publishing is also where you mark a `-beta` tag as
+  # a GitHub pre-release, which is what `allowPrerelease` in src/main/updater.ts
+  # reads for the client's Stable/Beta preference. A manual workflow_dispatch run
+  # builds installers and attaches them as CI artifacts only (best-effort,
+  # subject to the Actions storage quota) and creates no release at all.

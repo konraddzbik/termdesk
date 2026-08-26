@@ -1,0 +1,46 @@
+END USER LICENSE AGREEMENT (EULA) - TermDesk
+
+SCOPE: WHAT THIS AGREEMENT COVERS
+
+TermDesk's source code is licensed under the MIT License, in the LICENSE file at the root of the repository. Nothing in this Agreement restricts the rights the MIT License grants you over that source code, including the rights to use, copy, modify, and redistribute it. If you build TermDesk yourself from source, the MIT License alone applies and this Agreement does not.
+
+This Agreement governs only the pre-built binary installers and application bundles distributed by the project (the artifacts published on the project's releases page). In this Agreement, "Software" means those distributed binary builds and nothing else.
+
+IMPORTANT: READ CAREFULLY BEFORE USING THE SOFTWARE.
+
+This End User License Agreement ("Agreement") is a legal agreement between you (either an individual or a single entity) and the licensor ("Licensor", Konrad Dzbik or its authorized distributors) for the TermDesk desktop software ("Software").
+
+By installing, copying, or otherwise using the Software, you agree to be bound by the terms of this Agreement. If you do not agree to the terms, do not install or use the Software.
+
+1. GRANT OF LICENSE
+Licensor grants you a non-exclusive, non-transferable license to install and use the Software on devices owned or controlled by you, subject to the terms herein.
+
+2. RESTRICTIONS (DISTRIBUTED BINARY BUILDS ONLY)
+- You may not rent, lease, lend, sell, sublicense, or redistribute the project's binary builds without prior written consent and a commercial license. This clause covers those builds only: you remain free under the MIT License to build TermDesk from source and to distribute your own builds, provided they are not presented as the project's official builds.
+- This Agreement does not restrict inspecting, decompiling, or disassembling the Software. The complete source code for these builds is published under the MIT License, so there is nothing here to reverse engineer.
+- The binary builds are licensed, not sold.
+
+3. DATA & PRIVACY
+The Software is local-first. All SSH/VNC credentials, hosts, and files are stored locally and encrypted using the operating system's secure storage where applicable. The Software transmits no data to Licensor. It checks GitHub Releases for updates on launch (a request to api.github.com, which necessarily discloses your IP address to GitHub); that check can be avoided by using a build you make yourself. See SECURITY.md for the full data model.
+
+4. UPDATES & AUTO-UPDATE
+The Software may include an auto-update mechanism. Updates are subject to this Agreement (or updated terms presented at update time).
+
+5. DISCLAIMER OF WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY DAMAGES ARISING FROM USE OF THE SOFTWARE.
+
+6. LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR'S TOTAL LIABILITY SHALL NOT EXCEED THE AMOUNT PAID BY YOU FOR THE SOFTWARE (IF ANY).
+
+7. TERMINATION
+This Agreement terminates automatically if you fail to comply with any term. Upon termination you must cease all use and destroy all copies.
+
+8. GOVERNING LAW
+This Agreement shall be governed by the laws of the jurisdiction in which Licensor is organized, without regard to conflict of law principles.
+
+9. CONTACT
+For questions about this agreement, open a discussion on the project repository.
+
+© 2026 Konrad Dzbik. The source code is licensed under the MIT License; see LICENSE.
+
+By using the Software you acknowledge that you have read, understood, and agree to this EULA.

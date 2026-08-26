@@ -1,0 +1,74 @@
+name: Feature request
+description: Suggest something TermDesk should do that it does not do today.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution — what you were trying to do and where
+        TermDesk got in the way. That is the part that is hard to reconstruct later.
+
+        Please do not include host names, user names, internal addresses or anything from a
+        real credential in the example.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task or workflow, and what currently makes it awkward or impossible.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What should TermDesk do instead?
+      description: >-
+        Your proposed behaviour, concretely enough to be built — where it lives in the UI,
+        what it does on success, what it does when the remote side says no.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of TermDesk?
+      options:
+        - SSH terminal
+        - SFTP / file transfers
+        - VNC
+        - RDP
+        - Local terminal
+        - Prompt Book / Routines
+        - MCP (AI agent access)
+        - SSH tunnels
+        - Hosts, vault or settings
+        - Updates
+        - Something new
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do today instead?
+      description: >-
+        The workaround, another tool, or a shell one-liner. This is useful: sometimes the
+        workaround is good enough, and sometimes it shows the real shape of the feature.
+    validations:
+      required: false
+  - type: textarea
+    id: security
+    attributes:
+      label: Does this involve credentials, keys or remote execution?
+      description: >-
+        If the feature would store a new secret, hand something to the renderer, expose a
+        port, or let an AI agent take an action, say so. It changes how the change has to be
+        designed, not whether it is welcome.
+    validations:
+      required: false
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and this is not already requested.
+          required: true
+        - label: This request contains no real credentials, host names or internal addresses.
+          required: true

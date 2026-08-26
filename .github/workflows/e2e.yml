@@ -1,0 +1,75 @@
+# End-to-end smoke harnesses (SSH / SFTP / VNC / MCP / vault) run against the
+# real Electron main process and a disposable Docker SSH+VNC server.
+#
+# Manual-trigger only for now (workflow_dispatch): these need a headless display
+# (xvfb), Chromium's sandbox disabled, an unlocked OS keyring (safeStorage fails
+# CLOSED without one — by design — so host creation in vault/ssh/sftp would
+# otherwise error), and a healthy Docker test server. Once it's proven green on
+# a few manual runs, switch the trigger to `push`/`pull_request` to gate merges.
+name: E2E (smoke)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Smoke harnesses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # NOTE: unlike the unit-test job in ci.yml, do NOT reverse the
+      # better-sqlite3 patch here — these run under Electron's ABI, which is
+      # exactly what the default postinstall builds.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install runtime deps (display, sandbox-free run, keyring)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb gnome-keyring dbus-x11 libsecret-1-0
+
+      - name: Build
+        run: npm run build
+
+      # The smoke harness's key scenarios read .test/test_key[_enc], which are
+      # gitignored, and the container mounts .test/authorized_keys. Both are
+      # generated here, so the run trusts exactly this checkout's pair. Without
+      # this step the `ssh` suite fails on every run.
+      - name: Generate the test SSH keys
+        run: npm run test:keys
+
+      - name: Start the Docker test server (SSH + VNC)
+        run: docker compose -f docker-compose.test.yml up -d
+
+      - name: Wait for SSH to accept connections
+        run: |
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 2222; then echo "ssh up"; exit 0; fi
+            sleep 2
+          done
+          echo "ssh test server did not come up" >&2
+          docker compose -f docker-compose.test.yml logs >&2
+          exit 1
+
+      # Run inside an unlocked gnome-keyring session so safeStorage has a real
+      # backend, under a virtual X server, with Chromium's sandbox disabled.
+      - name: Run smoke harnesses
+        env:
+          ELECTRON_NO_SANDBOX: '1'
+        run: |
+          export $(dbus-launch)
+          dbus-run-session -- sh -c '
+            echo "" | gnome-keyring-daemon --unlock --components=secrets &
+            sleep 1
+            xvfb-run -a node scripts/run-smoke.mjs vault mcp ssh sftp vnc
+          '
+
+      - name: Tear down the test server
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v

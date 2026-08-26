@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="TermDesk">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181b"/>
+      <stop offset="100%" stop-color="#0a0a0b"/>
+    </linearGradient>
+    <radialGradient id="blueGlow" cx="50%" cy="74%" r="48%">
+      <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="2" y="2" width="508" height="508" rx="111" fill="none" stroke="#3B82F6" stroke-opacity="0.18" stroke-width="3"/>
+  <circle cx="256" cy="330" r="150" fill="url(#blueGlow)"/>
+  <rect x="116" y="150" width="280" height="212" rx="22" fill="#1c1c20" stroke="#3f3f46" stroke-width="3"/>
+  <line x1="116" y1="196" x2="396" y2="196" stroke="#3f3f46" stroke-width="3"/>
+  <g fill="#52525b">
+    <circle cx="150" cy="173" r="7"/>
+    <circle cx="176" cy="173" r="7"/>
+    <circle cx="202" cy="173" r="7"/>
+  </g>
+  <g stroke="#e4e4e7" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <polyline points="152,242 196,278 152,314"/>
+    <line x1="216" y1="318" x2="284" y2="318"/>
+  </g>
+  <rect x="300" y="244" width="26" height="68" rx="4" fill="#3B82F6"/>
+</svg>

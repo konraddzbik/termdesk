@@ -1,0 +1,16 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/konraddzbik/termdesk/security/advisories/new
+    about: >-
+      Never report a vulnerability in a public issue. Use GitHub private vulnerability
+      reporting — it opens a draft advisory only you and the maintainer can see. The
+      process, the response-time expectation and what to include are in SECURITY.md.
+  - name: Security model and threat model
+    url: https://github.com/konraddzbik/termdesk/blob/main/SECURITY.md
+    about: How secrets are stored, what the renderer can reach, and how to report a vulnerability.
+  - name: Building, testing and contributing
+    url: https://github.com/konraddzbik/termdesk/blob/main/CONTRIBUTING.md
+    about: >-
+      Read this before filing "tests do not run" — native modules build against Electron's
+      ABI and need a rebuild for the Node test runtime.

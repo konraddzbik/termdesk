@@ -1,0 +1,63 @@
+# Lint, typecheck, unit tests and a production build.
+#
+# Called by ci.yml (push/PR) and by release.yml (tag push), so a tag can never
+# ship installers built from a commit whose tests fail — release.yml used to
+# build and publish without running the suite at all.
+name: Verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, test, and compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Single source of truth for the Node version: .nvmrc. electron and
+      # @electron/rebuild both declare `node >= 22.12.0`, so pinning a lower
+      # version here builds the shipped artifacts on an engine the toolchain
+      # does not support.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # postinstall compiles better-sqlite3 against Electron's V8 (the
+      # kExternalPointerTypeTagDefault patch in patches/). vitest runs under
+      # Node, whose V8 lacks that symbol and ships no matching prebuilt binary,
+      # so reverse just that patch and recompile from clean source for the Node
+      # ABI. The @novnc patch stays applied (the renderer build needs it).
+      #
+      # The patch filename carries better-sqlite3's exact version, so glob it —
+      # naming it literally turns every better-sqlite3 bump into a failure that
+      # reports a missing file rather than the version change that caused it.
+      - name: Build better-sqlite3 for the Node test runtime
+        run: |
+          patch=(patches/better-sqlite3+*.patch)
+          if [ ! -f "${patch[0]}" ]; then
+            echo "::error::no patches/better-sqlite3+*.patch found"
+            exit 1
+          fi
+          echo "reversing ${patch[0]}"
+          git apply -R "${patch[0]}"
+          npm rebuild better-sqlite3 --build-from-source
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

@@ -1,0 +1,155 @@
+name: Bug report
+description: Something in TermDesk behaves differently than it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Before you type: do not paste secrets
+
+        TermDesk handles SSH credentials, so a bug report is an easy place to leak one.
+
+        **Never include in an issue:**
+
+        - private keys or key passphrases (`id_rsa`, `id_ed25519`, anything starting `-----BEGIN`)
+        - passwords — SSH, `sudo`, VNC or RDP
+        - license keys, activation tokens or magic-link URLs
+        - an **unredacted log, terminal transcript or DevTools/Network capture**
+
+        The last one is the easy mistake. A VNC or RDP session is fed through a loopback
+        bridge whose URL *is* the credential — `ws://127.0.0.1:<port>/<token>` — and the
+        stored VNC password is handed to the renderer once per session for the RFB
+        handshake. Logs and DevTools output also carry real host names and user names.
+        Replace anything sensitive with `REDACTED` before pasting, and prefer the
+        smallest excerpt that shows the problem.
+
+        If the bug itself *is* a security weakness, do not file it here — follow
+        [SECURITY.md](https://github.com/konraddzbik/termdesk/blob/main/SECURITY.md)
+        and report it privately.
+  - type: input
+    id: version
+    attributes:
+      label: TermDesk version
+      description: "Help ▸ About, or the version in the title bar. If you built from source, give the commit sha instead."
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: os_version
+    attributes:
+      label: OS version
+      placeholder: "macOS 15.3 / Windows 11 23H2 / Ubuntu 24.04"
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: CPU architecture
+      description: >-
+        This matters. Native modules (better-sqlite3, node-pty, ssh2) are built per
+        architecture, and the published macOS build for 0.4.0 is arm64 only — on an Intel
+        Mac you are running either an older release or your own build. On macOS: Apple menu
+        → About This Mac ("Apple M…" = arm64, "Intel" = x64).
+      options:
+        - arm64 (Apple Silicon)
+        - x64 / x86_64 (Intel or AMD)
+        - other / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Downloaded installer from a GitHub Release
+        - Built from source (npm run dist)
+        - Running the dev server (npm run dev)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of TermDesk?
+      options:
+        - SSH terminal
+        - SFTP / file transfers
+        - VNC
+        - RDP
+        - Local terminal
+        - Prompt Book / Routines
+        - MCP (AI agent access)
+        - SSH tunnels
+        - Hosts, vault or settings
+        - Updates
+        - Other or not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: The actual behaviour, including any error message shown in the app (redacted).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >-
+        Numbered steps from a fresh launch. Say whether it happens every time or
+        intermittently, and whether it reproduces against the local test container
+        (`docker compose -f docker-compose.test.yml up -d`) — that gives a target anyone
+        can try without access to your servers.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: environment_detail
+    attributes:
+      label: Relevant setup detail
+      description: >-
+        Only what bears on the bug: ProxyJump chain shape, key type, auth method, VNC
+        transport (tunnelled or direct), terminal program (login shell / tmux / Zellij /
+        screen), remote OS and server version. Describe the shape, not the addresses.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt (redacted)
+      description: >-
+        Optional, and only if you have redacted it. Paste the smallest excerpt that shows
+        the failure.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and this is not already reported.
+          required: true
+        - label: This report contains no private key, password, passphrase, license key or activation token, and any log or transcript in it has been redacted.
+          required: true
+        - label: This is a bug, not a security vulnerability. (Vulnerabilities go through SECURITY.md, privately.)
+          required: true
