@@ -7,8 +7,8 @@
 ![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white&style=flat-square)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black&style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white&style=flat-square)
-![Tests](https://img.shields.io/badge/tests-634%20passing-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/coverage-36.77%25%20lines-yellow?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-637%20passing-brightgreen?style=flat-square)
+![Coverage](https://img.shields.io/badge/coverage-36.82%25%20lines-yellow?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
 *Status: shipping — SSH terminal, SFTP, VNC over SSH, native RDP, MCP agent access, SSH tunnel manager, fleet automation, local terminals with a choice of terminal program (login shell / tmux / Zellij / screen / alternate shells), Prompt Book + scheduled Routines, settings, command palette and packaging.*
@@ -119,7 +119,7 @@ docker compose -f docker-compose.test.yml up -d
 
 ### E2E smoke harnesses
 
-Four self-contained end-to-end suites run inside the real Electron app against the docker container. Each prints an `*_OK` marker on success:
+Five self-contained end-to-end suites run inside the real Electron app (the first four against the docker container; the MCP suite needs no external services). Each prints an `*_OK` marker on success:
 
 | Command | Proves | Verified result |
 |---|---|---|
@@ -127,18 +127,19 @@ Four self-contained end-to-end suites run inside the real Electron app against t
 | `TERMDESK_SMOKE=ssh npx electron .` | Real logins with password, key, and key + encrypted passphrase | `SSH_SMOKE_OK` |
 | `TERMDESK_SMOKE=sftp npx electron .` | 1 GB upload + download with RSS monitoring (peak 259 MB — under the 300 MB budget) and a 500-file folder upload | `SFTP_SMOKE_OK` |
 | `TERMDESK_SMOKE=vnc npx electron .` | RFB handshake both direct and over the SSH tunnel; forged-token connections rejected; tokens are single-use | `VNC_SMOKE_OK` |
+| `TERMDESK_SMOKE=mcp npx electron .` | Token-gated MCP server starts on loopback; a forged bearer token is rejected | `MCP_SMOKE_OK` |
 
 ## ✅ Testing
 
 ```bash
-npm test                # 634 unit/integration tests across 68 files — all green
-npm run test:coverage   # v8 line coverage: 36.77% (2340/6363 lines)
+npm test                # 637 unit/integration tests across 69 files — all green
+npm run test:coverage   # v8 line coverage: 36.82% (2340/6355 lines)
 ```
 
-Vitest runs renderer tests under jsdom (Testing Library) and everything else under node. Coverage is concentrated where it counts — pure logic is high, while process-glue and UI shells are covered by the four e2e smokes instead of unit tests:
+Vitest runs renderer tests under jsdom (Testing Library) and everything else under node. Coverage is concentrated where it counts — pure logic is high, while process-glue and UI shells are covered by the five e2e smokes instead of unit tests:
 
 - **High (lines):** `shared` 97.1% — the Zod IPC contract every process depends on — `renderer/lib` 97.5%, `main/store` 81.4% (db, hosts-repo, settings and snippets-repo at or near 100%), `ssh-util` 100%, the `~/.ssh/config` parser and its `Include` resolver in the high 90s.
-- **Low, and covered by the smokes instead:** `main/ipc` handler glue 9.8%, `session-manager` and `sftp-manager`/`transfer-manager` 0%, `vnc-manager` and the UI shells (`SftpTab`, `TerminalView`, `VncTab`, layout and the sidebar panels) low or zero. These are process glue and Electron/DOM shells; the four `TERMDESK_SMOKE` harnesses exercise them end to end against a real server. Entry points and `*-smoke.ts` files are excluded from coverage by config.
+- **Low, and covered by the smokes instead:** `main/ipc` handler glue 9.8%, `session-manager` and `sftp-manager`/`transfer-manager` 0%, `vnc-manager` and the UI shells (`SftpTab`, `TerminalView`, `VncTab`, layout and the sidebar panels) low or zero. These are process glue and Electron/DOM shells; the `TERMDESK_SMOKE` harnesses exercise them end to end against a real server. Entry points and `*-smoke.ts` files are excluded from coverage by config.
 
 Build + typecheck + lint are clean, and a headed dev launch logs zero error lines.
 
@@ -219,7 +220,7 @@ src/
 ## 🗺 Known limitations / roadmap
 
 - **Master password** — optional Argon2id-derived second encryption layer over the vault; deferred.
-- **Playwright smoke test** (launch app → add host → mock connection) — deferred; the four `TERMDESK_SMOKE` harnesses cover e2e today.
+- **Playwright smoke test** (launch app → add host → mock connection) — deferred; the five `TERMDESK_SMOKE` harnesses cover e2e today.
 - **`~/.ssh/config` import** — `Match` blocks and token expansion (`%h`/`%p`) are still skipped; cloud-provider inventory import (AWS/GCP) is not implemented.
 
 See [`SECURITY.md`](SECURITY.md#future-hardening) for the hardening roadmap.

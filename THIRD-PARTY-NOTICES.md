@@ -66,7 +66,7 @@ resolutions live in `package-lock.json`).
 
 | Package | Version |
 |---|---|
-| `@modelcontextprotocol/sdk` | 1.29.0 |
+| `@modelcontextprotocol/sdk` | 1.30.0 |
 | `@xterm/addon-fit` | 0.11.0 |
 | `@xterm/addon-search` | 0.16.0 |
 | `@xterm/addon-web-links` | 0.12.0 |
@@ -196,12 +196,10 @@ Electron maintains those notices upstream: the licence texts ship in the
 `electron` package as `node_modules/electron/dist/LICENSE` and
 `node_modules/electron/dist/LICENSES.chromium.html`.
 
-Known gap: the macOS `.app` produced by the current `electron-builder.yml` does
-not contain either of those files — verified against
-`dist/mac-arm64/TermDesk.app`, whose only bundled licence texts are the three
-unpacked native modules' own. Redistributing Chromium normally means shipping
-`LICENSES.chromium.html` alongside the binary. This is a packaging issue in
-`electron-builder.yml`, not a dependency issue, and is not fixed by this file.
+`electron-builder.yml` copies both files into the packaged app under
+`Contents/Resources/licenses/` (`extraResources`: `electron.LICENSE` and
+`LICENSES.chromium.html`), so every installer carries the Chromium and Node.js
+notices alongside the binary as their BSD-style terms require.
 
 ## Reproducing this list
 
