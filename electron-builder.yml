@@ -16,6 +16,15 @@ files:
   - LICENSE
   - THIRD-PARTY-NOTICES.md
   - EULA.txt
+# Redistributing the Electron runtime means redistributing Chromium and Node.js,
+# whose BSD-style terms require their notices to travel with the binary. Electron
+# ships both texts in node_modules/electron/dist; copy them into the app's
+# Resources so every installer carries them (they are not inside app.asar).
+extraResources:
+  - from: node_modules/electron/dist/LICENSE
+    to: licenses/electron.LICENSE
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: licenses/LICENSES.chromium.html
 asar: true
 npmRebuild: true
 
@@ -93,7 +102,7 @@ nsis:
 linux:
   category: Development
   maintainer: Konrad Dzbik
-  synopsis: SSH, SFTP, and VNC desktop client
+  synopsis: SSH, SFTP, VNC, and RDP desktop client
   icon: build/icon.png
   target:
     - AppImage

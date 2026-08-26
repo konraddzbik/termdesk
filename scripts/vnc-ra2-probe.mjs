@@ -2,7 +2,7 @@
  * Headless RealVNC RSA-AES (type 5) handshake probe via patched noVNC.
  * Usage:
  *   VNC_USER=... VNC_PASS=... node scripts/vnc-ra2-probe.mjs [host] [port]
- *   node scripts/vnc-probe-from-db.mjs [hostId]   # loads creds from sshdeck.db
+ *   node scripts/vnc-probe-from-db.mjs [hostId]   # loads creds from termdesk.db
  */
 import { webcrypto } from 'node:crypto'
 import net from 'node:net'
