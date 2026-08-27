@@ -14,3 +14,8 @@ contact_links:
     about: >-
       Read this before filing "tests do not run" — native modules build against Electron's
       ABI and need a rebuild for the Node test runtime.
+  - name: Ask the maintainer privately
+    url: https://github.com/konraddzbik
+    about: >-
+      For anything you would rather not raise in public. Contact details are on the maintainer's
+      GitHub profile. Prefer the "Question / setup help" issue form above for anything public.

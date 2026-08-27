@@ -133,9 +133,12 @@ needs more information) within **7 days**, and to ship a fix or mitigation for c
 high-severity issues promptly. If you have had no acknowledgement after a week, you may
 open a public issue that says only that you filed a private report and gives no details.
 
-Coordinated disclosure is appreciated; we will credit reporters who wish to be named. A
-product website should additionally serve `/.well-known/security.txt` pointing at this
-process.
+Coordinated disclosure is appreciated; we will credit reporters who wish to be named.
+
+TermDesk has **no project website today**, so there is no `/.well-known/security.txt` to serve — GitHub
+private vulnerability reporting (above) is the sole and sufficient channel. If a homepage is added
+later, it should serve an [RFC 9116](https://www.rfc-editor.org/rfc/rfc9116) `security.txt` pointing at
+this same process; until then, do not expect one.
 
 **Current version security posture**: Suitable for internal/company deployment when combined with OS-level protections, least-privilege user accounts on target machines, and proper host key hygiene.
 

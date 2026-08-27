@@ -7,8 +7,7 @@
 ![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white&style=flat-square)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black&style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white&style=flat-square)
-![Tests](https://img.shields.io/badge/tests-650%20passing-brightgreen?style=flat-square)
-![Coverage](https://img.shields.io/badge/coverage-36.82%25%20lines-yellow?style=flat-square)
+[![CI](https://img.shields.io/github/actions/workflow/status/konraddzbik/termdesk/ci.yml?branch=main&label=CI&style=flat-square)](https://github.com/konraddzbik/termdesk/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 
 *Status: shipping — SSH terminal, SFTP, VNC over SSH, native RDP, MCP agent access, SSH tunnel manager, fleet automation, local terminals with a choice of terminal program (login shell / tmux / Zellij / screen / alternate shells), Prompt Book + scheduled Routines, settings, command palette and packaging.*
@@ -144,11 +143,11 @@ Five self-contained end-to-end suites run inside the real Electron app (the firs
 ## ✅ Testing
 
 ```bash
-npm test                # 650 unit/integration tests across 70 files — all green
-npm run test:coverage   # v8 line coverage: 36.82% (2340/6355 lines)
+npm test                # unit + integration suite (vitest) — all green on main
+npm run test:coverage   # v8 line coverage report into coverage/
 ```
 
-Vitest runs renderer tests under jsdom (Testing Library) and everything else under node. Coverage is concentrated where it counts — pure logic is high, while process-glue and UI shells are covered by the five e2e smokes instead of unit tests:
+Vitest runs renderer tests under jsdom (Testing Library) and everything else under node. Coverage is concentrated where it counts — pure logic is high, while process-glue and UI shells are covered by the five e2e smokes instead of unit tests (percentages below are indicative, not pinned — run `npm run test:coverage` for current numbers):
 
 - **High (lines):** `shared` 97.1% — the Zod IPC contract every process depends on — `renderer/lib` 97.5%, `main/store` 81.4% (db, hosts-repo, settings and snippets-repo at or near 100%), `ssh-util` 100%, the `~/.ssh/config` parser and its `Include` resolver in the high 90s.
 - **Low, and covered by the smokes instead:** `main/ipc` handler glue 9.8%, `session-manager` and `sftp-manager`/`transfer-manager` 0%, `vnc-manager` and the UI shells (`SftpTab`, `TerminalView`, `VncTab`, layout and the sidebar panels) low or zero. These are process glue and Electron/DOM shells; the `TERMDESK_SMOKE` harnesses exercise them end to end against a real server. Entry points and `*-smoke.ts` files are excluded from coverage by config.
