@@ -87,11 +87,17 @@ jobs:
       # fast-artifacts job, we ship arm64 (which builds natively and correctly)
       # and leave the dual-arch cross-build to release.yml, where the same arch
       # check below gates it before any real Release attaches an Intel dmg
-      # (issues #26 / #24). Drop the `--arm64` restriction here once the x64
+      # (issues #26 / #24). Restore the full dual-arch build here once the x64
       # cross-build is proven.
+      #
+      # `--mac dmg:arm64 zip:arm64` REPLACES electron-builder.yml's dual-arch
+      # target list for this run (a bare `--arm64` only adds arm64 to the config
+      # arches, so x64 still builds — that is exactly what failed the first run).
       - name: Build installers (unsigned, arm64 only)
         if: matrix.platform == 'macos'
-        run: npm run dist -- --arm64
+        run: |
+          npm run build
+          npx electron-builder --publish never --mac dmg:arm64 zip:arm64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
