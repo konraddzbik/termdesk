@@ -81,6 +81,35 @@ jobs:
         shell: bash
         run: ls -la dist/
 
+      # The mac target cross-builds arm64 + x64 in one run on an Apple Silicon
+      # runner, and nothing guarantees every native module actually got rebuilt
+      # for both. It has silently failed before: the x64 bundle shipped an arm64
+      # `sshcrypto.node`, which ssh2 loads inside a bare `catch {}` — so Intel
+      # users quietly ran a different cipher path; the same miss on
+      # `better_sqlite3.node` would be a launch crash. release.yml gates its
+      # Release assets on this check, and the CI package job is the ONLY other
+      # job that produces downloadable bits (14-day Actions artifacts), so it
+      # must fail closed too (issue #26).
+      - name: Verify packaged native modules match their target arch (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          fail=0
+          check() { # $1 = app bundle, $2 = expected arch
+            while IFS= read -r f; do
+              got="$(lipo -archs "$f" 2>/dev/null || true)"
+              case " $got " in
+                *" $2 "*) ;;
+                *) echo "::error::$f is [$got], expected $2"; fail=1 ;;
+              esac
+            done < <(find "$1/Contents/Resources/app.asar.unpacked" \
+                       -name '*.node' -o -name 'spawn-helper' 2>/dev/null \
+                     | grep -v '/prebuilds/')
+          }
+          [ -d dist/mac-arm64/TermDesk.app ] && check dist/mac-arm64/TermDesk.app arm64
+          [ -d dist/mac/TermDesk.app ] && check dist/mac/TermDesk.app x86_64
+          exit $fail
+
       - name: Upload installers
         uses: actions/upload-artifact@v7
         with:

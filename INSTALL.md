@@ -56,9 +56,10 @@ Every push to `main` that passes verify also runs the package job and uploads
 unsigned installers as GitHub Actions artifacts (`termdesk-macos`,
 `termdesk-windows`, `termdesk-linux`) with **14-day** retention. Open the latest
 green [CI run](https://github.com/konraddzbik/termdesk/actions/workflows/ci.yml)
-→ *Artifacts*. These are **not** GitHub Releases; they expire, they are
-unsigned, and the macOS job does not yet run the native-module architecture
-check that `release.yml` does.
+→ *Artifacts*. These are **not** GitHub Releases; they expire and they are
+unsigned. The macOS job runs the same fail-closed native-module architecture
+check as `release.yml`, so an arm64/x64 arch mismatch fails the build instead of
+shipping a broken Intel bundle.
 
 The builds are **unsigned**. Every OS therefore shows a one-time "unknown
 developer" warning, and on macOS this has a second consequence: **an unsigned
