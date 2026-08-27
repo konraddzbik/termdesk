@@ -71,10 +71,28 @@ jobs:
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y libfuse2 fakeroot
 
+      # Non-macOS: build every target electron-builder.yml declares.
       - name: Build installers (unsigned)
+        if: matrix.platform != 'macos'
         run: npm run dist
         env:
           # CI builds are unsigned; release.yml can sign when secrets are set.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      # macOS: build arm64 ONLY. The x64 leg cross-builds native modules on this
+      # Apple Silicon runner, and that cross-build is currently broken — the x64
+      # bundle ships an arm64 `sshcrypto.node`, which ssh2 loads inside a bare
+      # `catch {}`, so an Intel user of the CI x64 artifact would silently run a
+      # different cipher path. Rather than upload a known-bad Intel build from the
+      # fast-artifacts job, we ship arm64 (which builds natively and correctly)
+      # and leave the dual-arch cross-build to release.yml, where the same arch
+      # check below gates it before any real Release attaches an Intel dmg
+      # (issues #26 / #24). Drop the `--arm64` restriction here once the x64
+      # cross-build is proven.
+      - name: Build installers (unsigned, arm64 only)
+        if: matrix.platform == 'macos'
+        run: npm run dist -- --arm64
+        env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: List artifacts
