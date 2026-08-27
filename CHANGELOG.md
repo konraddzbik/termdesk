@@ -4,6 +4,15 @@
 
 TermDesk's source is now published under the **MIT Licence**.
 
+- **Install docs match GitHub:** `INSTALL.md` / README no longer treat the
+  Releases page as a download source. `konraddzbik/termdesk` currently has no
+  tags and no GitHub Releases, so from-source (`npm install && npm run dev`) is
+  the supported path, with local `npm run dist` for an unsigned installer. A
+  colocated install-contract check (`src/main/install-contract.ts`) loads the
+  real `package.json`, `electron-builder.yml` and install docs so a tag/version
+  mismatch or an invented "published installer" claim fails `npm test`.
+
+
 - **No licence check, no seat, no account.** The commercial licensing subsystem has been removed from
   this repository — `npm install && npm run dev` opens a usable app, and a build you make from this
   source is the whole application. There are no host-count caps: the previous free tier allowed 25 SSH

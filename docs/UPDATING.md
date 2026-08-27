@@ -4,12 +4,14 @@
 
 TermDesk checks this repository's **GitHub Releases** on launch via
 `electron-updater`'s `github` provider (see `src/main/updater.ts`; the release
-workflow publishes there via `electron-builder.yml` → `publish`). No credential is
-involved in either direction — the update is the same artifact anyone can download
-from the Releases page and verify (see [`INSTALL.md`](../INSTALL.md)). A **beta**
-channel preference maps to GitHub *pre-releases* rather than a separate feed.
-What happens on update depends on the platform and whether the build is
-code-signed.
+workflow publishes there via `electron-builder.yml` → `publish`). That feed is
+empty today: `konraddzbik/termdesk` currently has **no tags and no GitHub
+Releases**, so there is nothing to download or self-update to. Once a Release
+exists, no credential is involved in either direction — the update is the same
+artifact anyone can download from the Releases page and verify (see
+[`INSTALL.md`](../INSTALL.md)). A **beta** channel preference maps to GitHub
+*pre-releases* rather than a separate feed. What happens on update depends on
+the platform and whether the build is code-signed.
 
 | Platform | Signed build | Unsigned build (current default) |
 |----------|--------------|----------------------------------|
@@ -20,8 +22,9 @@ code-signed.
 **Why macOS is different:** macOS in-app updates use Squirrel.Mac, which only
 applies an update if the app is **code-signed and notarized**. An unsigned macOS
 build cannot self-update — Squirrel rejects it. So unsigned macOS builds fall
-back to opening the [Releases page](https://github.com/konraddzbik/termdesk/releases/latest)
-where the user downloads the new `.dmg` and replaces the app.
+back to opening the Releases page (empty until the first tag is published;
+see [`INSTALL.md`](../INSTALL.md)) where, once a Release exists, the user
+downloads the new `.dmg` and replaces the app.
 
 macOS is disabled in code by `platformSegment()` in `src/main/updater.ts`, which
 returns `null` on `darwin` — `initUpdater()` then returns early and the renderer
@@ -33,9 +36,12 @@ You can always trigger a check manually from **Help ▸ Check for Updates…**.
 
 ## Updating an installed macOS app (manual, unsigned builds)
 
+Until a GitHub Release exists, build from source or run `npm run dist` — there
+is no `.dmg` to download. Once a Release is published:
+
 1. Open **Help ▸ Check for Updates…** (or the menu prompt on launch), then click
    **Download** — or go straight to the
-   [Releases page](https://github.com/konraddzbik/termdesk/releases/latest).
+   [Releases page](https://github.com/konraddzbik/termdesk/releases).
 2. Download the `.dmg` for your chip:
    - Apple Silicon (M1/M2/M3/M4): **`TermDesk-<version>-arm64.dmg`**
    - Intel: **`TermDesk-<version>-x64.dmg`**
@@ -48,6 +54,9 @@ You can always trigger a check manually from **Help ▸ Check for Updates…**.
 > popup. The `.dmg` is the one with the drag-to-Applications window.
 
 ## Cutting a release (maintainers)
+
+No `v*` tag has been pushed to `konraddzbik/termdesk` yet, so this path has
+never produced a GitHub Release. When you are ready:
 
 Releases are cut by tagging. To publish real, downloadable installers:
 

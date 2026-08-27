@@ -87,7 +87,8 @@ export function manualCheckForUpdates(): void {
       type: 'info',
       title: 'Check for Updates',
       message: 'Automatic updates are not available on this platform yet.',
-      detail: 'Download the latest version from the Releases page.',
+      detail:
+        'If a GitHub Release exists, download it from the repository Releases page. Otherwise build from source — see INSTALL.md.',
     })
     return
   }
@@ -165,7 +166,8 @@ export function initUpdater(): void {
         type: 'warning',
         title: 'Update check failed',
         message: 'Could not check for updates right now.',
-        detail: 'You can download the latest version from the Releases page.',
+        detail:
+          'If a GitHub Release exists, download it from the repository Releases page. Otherwise build from source — see INSTALL.md.',
         buttons: ['Open download page', 'Close'],
         defaultId: 0,
         cancelId: 1,
