@@ -71,15 +71,68 @@ jobs:
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y libfuse2 fakeroot
 
+      # Non-macOS: build every target electron-builder.yml declares.
       - name: Build installers (unsigned)
+        if: matrix.platform != 'macos'
         run: npm run dist
         env:
           # CI builds are unsigned; release.yml can sign when secrets are set.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
+      # macOS: build arm64 ONLY. The x64 leg cross-builds native modules on this
+      # Apple Silicon runner, and that cross-build is currently broken — the x64
+      # bundle ships an arm64 `sshcrypto.node`, which ssh2 loads inside a bare
+      # `catch {}`, so an Intel user of the CI x64 artifact would silently run a
+      # different cipher path. Rather than upload a known-bad Intel build from the
+      # fast-artifacts job, we ship arm64 (which builds natively and correctly)
+      # and leave the dual-arch cross-build to release.yml, where the same arch
+      # check below gates it before any real Release attaches an Intel dmg
+      # (issues #26 / #24). Restore the full dual-arch build here once the x64
+      # cross-build is proven.
+      #
+      # `--mac dmg:arm64 zip:arm64` REPLACES electron-builder.yml's dual-arch
+      # target list for this run (a bare `--arm64` only adds arm64 to the config
+      # arches, so x64 still builds — that is exactly what failed the first run).
+      - name: Build installers (unsigned, arm64 only)
+        if: matrix.platform == 'macos'
+        run: |
+          npm run build
+          npx electron-builder --publish never --mac dmg:arm64 zip:arm64
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
       - name: List artifacts
         shell: bash
         run: ls -la dist/
+
+      # The mac target cross-builds arm64 + x64 in one run on an Apple Silicon
+      # runner, and nothing guarantees every native module actually got rebuilt
+      # for both. It has silently failed before: the x64 bundle shipped an arm64
+      # `sshcrypto.node`, which ssh2 loads inside a bare `catch {}` — so Intel
+      # users quietly ran a different cipher path; the same miss on
+      # `better_sqlite3.node` would be a launch crash. release.yml gates its
+      # Release assets on this check, and the CI package job is the ONLY other
+      # job that produces downloadable bits (14-day Actions artifacts), so it
+      # must fail closed too (issue #26).
+      - name: Verify packaged native modules match their target arch (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          fail=0
+          check() { # $1 = app bundle, $2 = expected arch
+            while IFS= read -r f; do
+              got="$(lipo -archs "$f" 2>/dev/null || true)"
+              case " $got " in
+                *" $2 "*) ;;
+                *) echo "::error::$f is [$got], expected $2"; fail=1 ;;
+              esac
+            done < <(find "$1/Contents/Resources/app.asar.unpacked" \
+                       -name '*.node' -o -name 'spawn-helper' 2>/dev/null \
+                     | grep -v '/prebuilds/')
+          }
+          [ -d dist/mac-arm64/TermDesk.app ] && check dist/mac-arm64/TermDesk.app arm64
+          [ -d dist/mac/TermDesk.app ] && check dist/mac/TermDesk.app x86_64
+          exit $fail
 
       - name: Upload installers
         uses: actions/upload-artifact@v7
