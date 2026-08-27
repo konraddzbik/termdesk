@@ -39,7 +39,7 @@ This Agreement terminates automatically if you fail to comply with any term. Upo
 This Agreement shall be governed by the laws of the jurisdiction in which Licensor is organized, without regard to conflict of law principles.
 
 9. CONTACT
-For questions about this agreement, open a discussion on the project repository.
+For questions about this agreement, open a "Question / setup help" issue on the project repository (https://github.com/konraddzbik/termdesk/issues/new/choose), or contact the maintainer privately via the details on https://github.com/konraddzbik.
 
 © 2026 Konrad Dzbik. The source code is licensed under the MIT License; see LICENSE.
 

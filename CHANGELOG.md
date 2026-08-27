@@ -21,6 +21,15 @@ TermDesk's source is now published under the **MIT Licence**.
   `electron-builder.yml` `mac:`/`dmg:` keys instead of stale citations, and
   INSTALL.md documents the Linux keyring on the from-source path and the OS
   user-data vault paths left behind on uninstall.
+- **Docs match what the repo builds (community polish):** `docs/DEPLOYMENT.md` no
+  longer promises a signed MSI or an "internal update server" — Windows ships an
+  NSIS `.exe`, the updater targets this project's GitHub Releases via compile-time
+  constants, and builds are currently unsigned. README drops the frozen
+  "N passing" / "36.82%" badges for a live CI status badge. A "Question / setup
+  help" issue form and a private-contact link give setup questions a home (blank
+  issues stay disabled), and `EULA.txt` points at that instead of a non-existent
+  discussion. `SECURITY.md` no longer implies a `security.txt` that no website
+  serves. A `community-polish` doc-contract test guards all of the above.
 
 
 - **No licence check, no seat, no account.** The commercial licensing subsystem has been removed from

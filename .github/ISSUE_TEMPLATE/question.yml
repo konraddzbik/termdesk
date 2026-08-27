@@ -1,0 +1,35 @@
+name: Question / setup help
+description: Ask about building, installing, or using TermDesk — anything that is not a bug or a security report.
+title: "[question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Setup or usage question? This is the place — you do not need a bug to open an issue.
+        Before filing, please skim [`CONTRIBUTING.md`](https://github.com/konraddzbik/termdesk/blob/main/CONTRIBUTING.md)
+        (the native-module "traps" answer most "tests won't run" / "app won't start" questions) and
+        [`INSTALL.md`](https://github.com/konraddzbik/termdesk/blob/main/INSTALL.md). **Never** put a
+        security vulnerability here — use private reporting (see SECURITY.md).
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What are you trying to do, and where are you stuck?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you have tried
+      description: Commands run, docs read, and any output or error (redact secrets and hostnames).
+    validations:
+      required: false
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS + version, Node version (`node -v`), and whether you are on from-source or a local build.
+      placeholder: "macOS 15 / Node 22.12 / from source"
+    validations:
+      required: false
