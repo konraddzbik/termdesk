@@ -11,6 +11,16 @@ TermDesk's source is now published under the **MIT Licence**.
   colocated install-contract check (`src/main/install-contract.ts`) loads the
   real `package.json`, `electron-builder.yml` and install docs so a tag/version
   mismatch or an invented "published installer" claim fails `npm test`.
+- **Smoother first clone (contributor setup):** a new `npm run doctor` preflight
+  reports Node version, the C/C++ toolchain, the better-sqlite3 Node-ABI prebuild
+  and (on Linux) the OS keyring before a test run fails opaquely. `npm run dist`
+  now restores host-architecture native modules automatically via a `postdist`
+  hook, so `npm run dev` no longer breaks after packaging on macOS. The smoke
+  runner gives the `sftp` suite a 12-minute budget (its 1 GB transfer was killed
+  by the old 90s cap), CONTRIBUTING points at `verify.yml` and the
+  `electron-builder.yml` `mac:`/`dmg:` keys instead of stale citations, and
+  INSTALL.md documents the Linux keyring on the from-source path and the OS
+  user-data vault paths left behind on uninstall.
 
 
 - **No licence check, no seat, no account.** The commercial licensing subsystem has been removed from

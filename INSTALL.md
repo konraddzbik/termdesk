@@ -14,6 +14,11 @@ You need:
 - A C/C++ toolchain so native modules can compile: Xcode Command Line Tools on
   macOS, `build-essential` + `python3` on Linux, the Visual Studio C++ build
   tools plus Python (node-gyp) on Windows
+- **On Linux: an unlocked OS keyring** (gnome-libsecret or kwallet). TermDesk
+  refuses Electron's insecure `basic_text` `safeStorage` fallback and fails
+  closed, so **without a keyring you cannot save a host with a password** — even
+  from source. macOS (Keychain) and Windows (DPAPI) need nothing extra. See
+  [`SECURITY.md`](SECURITY.md).
 
 ```bash
 git clone https://github.com/konraddzbik/termdesk.git
@@ -134,8 +139,24 @@ Details, including how to enable real macOS auto-update once signing is in place
 
 ## Uninstall
 
+Removing the app removes the program, **not your data**. Hosts, settings and the encrypted secret
+vault live in the OS user-data directory (`termdesk`, with a legacy `sshdeck` fallback — see
+`src/main/app-paths.ts`), and every step below leaves that directory in place.
+
+Remove the app:
+
 - **macOS:** delete `/Applications/TermDesk.app`.
 - **Windows:** *Settings → Apps → TermDesk → Uninstall*.
 - **Ubuntu/Debian:** `sudo apt remove termdesk`.
 - **AppImage:** delete the file.
 - **From source:** delete the clone. App data lives in the OS user-data directory, not the repo.
+
+Then, to also wipe your hosts and stored secrets, delete the user-data directory:
+
+- **macOS:** `~/Library/Application Support/termdesk`
+- **Windows:** `%APPDATA%\termdesk` (e.g. `C:\Users\<you>\AppData\Roaming\termdesk`)
+- **Linux:** `~/.config/termdesk`
+
+If you used a pre-rebrand build, also remove the `sshdeck`-named sibling in the same location. On
+macOS and Windows the encrypted secrets are additionally keyed to the OS keychain (Keychain / DPAPI);
+deleting the user-data directory orphans them, and they are cleared on next keychain cleanup.

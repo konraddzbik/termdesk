@@ -17,10 +17,24 @@ if (SMOKES.length === 0) {
   process.exit(2)
 }
 
-const TIMEOUT_MS = 90_000
+// Per-suite wall-clock budgets. Most harnesses finish in seconds, so 90s is a
+// generous default. The sftp suite is the exception: it moves a 1 GB file up and
+// back down and copies a 500-file tree, and its own transfer waits allow up to
+// 10 minutes each (src/main/sftp/sftp-smoke.ts). A single 90s cap killed it
+// mid-transfer and reported a red smoke that was really a harness-budget bug
+// (issue #29). Give sftp room to finish; keep everything else tight.
+const DEFAULT_TIMEOUT_MS = 90_000
+const TIMEOUTS_MS = {
+  sftp: 12 * 60_000,
+}
+
+function timeoutFor(name) {
+  return TIMEOUTS_MS[name] ?? DEFAULT_TIMEOUT_MS
+}
 
 function runOne(name) {
   return new Promise((resolve) => {
+    const timeoutMs = timeoutFor(name)
     const okMarker = `${name.toUpperCase()}_SMOKE_OK`
     const failMarker = `${name.toUpperCase()}_SMOKE_FAIL`
     let out = ''
@@ -37,7 +51,7 @@ function runOne(name) {
     const timer = setTimeout(() => {
       timedOut = true
       child.kill('SIGKILL')
-    }, TIMEOUT_MS)
+    }, timeoutMs)
     const onData = (buf) => {
       const s = buf.toString()
       out += s

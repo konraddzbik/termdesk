@@ -88,7 +88,10 @@ yet — see [`INSTALL.md`](INSTALL.md).
 
 You need **Node.js >=22.12.0** and **npm 10+**, plus a C/C++ toolchain (Xcode
 Command Line Tools / `build-essential` / Visual Studio C++ build tools) so the
-native modules can compile.
+native modules can compile. **On Linux you also need an unlocked OS keyring**
+(gnome-libsecret or kwallet) — TermDesk fails closed rather than use Electron's
+insecure `basic_text` fallback, so without one you cannot save a host password
+([`SECURITY.md`](SECURITY.md)).
 
 ```bash
 npm install        # also applies the better-sqlite3 patch + rebuilds native deps
@@ -103,6 +106,7 @@ npm run dev        # electron-vite dev server + Electron window, HMR
 | Script | What it does |
 |---|---|
 | `npm run dev` | electron-vite dev server + Electron window |
+| `npm run doctor` | preflight: Node, toolchain, better-sqlite3 ABI, Linux keyring |
 | `npm run build` | typecheck (TS strict) + production build to `out/` |
 | `npm run lint` / `lint:fix` | biome check (format + lint) |
 | `npm test` | vitest (unit + integration) |

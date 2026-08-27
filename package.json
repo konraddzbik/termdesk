@@ -29,7 +29,10 @@
     "test:keys": "node scripts/gen-test-keys.mjs",
     "start": "electron-vite preview",
     "dist": "npm run build && electron-builder --publish never",
+    "postdist": "electron-builder install-app-deps",
     "dist:publish": "npm run build && electron-builder --publish always",
+    "postdist:publish": "electron-builder install-app-deps",
+    "doctor": "node scripts/doctor.mjs",
     "postinstall": "patch-package && electron-builder install-app-deps && node scripts/fix-node-pty-perms.mjs",
     "test:coverage": "vitest run --coverage"
   },

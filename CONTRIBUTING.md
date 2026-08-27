@@ -29,6 +29,7 @@ Follow this file top to bottom and you get a working checkout.
 
 ```bash
 npm ci               # postinstall: patch-package, then rebuilds native modules for Electron
+npm run doctor       # optional: verify Node, toolchain, better-sqlite3 ABI and (Linux) keyring
 npm run lint
 npm run typecheck
 npm test             # 70 files, 650 tests at the time of writing
@@ -49,6 +50,7 @@ a pull request is that it keeps them clean; a new diagnostic is a review comment
 | `npm run build` | typecheck (TS strict) then production build into `out/` |
 | `npm run typecheck` | `tsc` over `tsconfig.node.json` and `tsconfig.web.json` |
 | `npm run lint` / `lint:fix` | biome check (format + lint), with/without writing |
+| `npm run doctor` | preflight: Node version, C/C++ toolchain, better-sqlite3 Node prebuild, Linux keyring |
 | `npm test` | vitest, one pass |
 | `npm run test:watch` | vitest in watch mode |
 | `npm run test:coverage` | vitest with v8 coverage into `coverage/` |
@@ -76,12 +78,13 @@ checkout runs both `npm test` and `npm run dev`.
 That fallback needs the cached tarball
 (`better-sqlite3-v<version>-node-v<abi>-<platform>-<arch>.tar.gz`). It is normally there, because
 better-sqlite3's own install script runs `prebuild-install` before `install-app-deps` replaces the
-binary. If a test fails with *"better-sqlite3 native binary targets Electron and no Node prebuild
-… is cached"*, you have two options:
+binary. `npm run doctor` reports this exact condition before you hit it in a test run. If a test fails with
+*"better-sqlite3 native binary targets Electron and no Node prebuild … is cached"*, you have two
+options:
 
 1. Re-run `npm ci` with network access, which repopulates the cache.
 2. Do what CI does (the *Build better-sqlite3 for the Node test runtime* step in
-   `.github/workflows/ci.yml`) and compile a Node-ABI binary from source:
+   the `Verify` workflow, `.github/workflows/verify.yml`) and compile a Node-ABI binary from source:
 
    ```bash
    git apply -R patches/better-sqlite3+12.10.0.patch
@@ -99,17 +102,22 @@ renderer build needs it.
 ## Trap 2 — after `npm run dist` on macOS, `node_modules` is built for the wrong architecture
 
 `electron-builder.yml` builds **arm64 and x64** macOS artifacts in one run, deliberately, so a single
-`latest-mac.yml` covers both chips (`electron-builder.yml:29-37`). The x64 leg rebuilds the native
-modules for x86_64 and leaves them that way. Everything that runs `electron .` afterwards — the smoke
-harnesses, `npm run dev` — then dies with an `incompatible architecture` dlopen error that reads like
-a code fault:
+`latest-mac.yml` covers both chips — see the `arch:` list under the `mac:` / `dmg:` keys in
+`electron-builder.yml`. The x64 leg rebuilds the native modules for x86_64 and leaves them that way.
+Everything that runs `electron .` afterwards — the smoke harnesses, `npm run dev` — would then die
+with an `incompatible architecture` dlopen error that reads like a code fault.
+
+To stop that from biting, `npm run dist` has a **`postdist` hook** that runs
+`electron-builder install-app-deps` automatically once packaging finishes, restoring `node_modules`
+to the host architecture. You should not have to do anything. If you ever interrupt `npm run dist`
+before the hook runs (Ctrl-C mid-build), restore the host arch by hand:
 
 ```bash
 npx electron-builder install-app-deps    # restores the host architecture
 ```
 
-This has cost real debugging time more than once. If a native module suddenly fails to load and your
-last command was `npm run dist`, this is why.
+If a native module suddenly fails to load and your last command was a *cancelled* `npm run dist`,
+this is why.
 
 ## Smoke harnesses
 
@@ -129,7 +137,10 @@ Conventions worth knowing before you write one (`scripts/run-smoke.mjs`):
 - The runner sets `TERMDESK_SMOKE=<name>`, and each harness prints `<NAME>_SMOKE_OK` or
   `<NAME>_SMOKE_FAIL: <reason>` and then calls `app.quit()`. Because the exit code is always 0,
   pass/fail is decided by **parsing stdout** for those markers. A suite that prints neither, or
-  exceeds the 90-second timeout, counts as failed.
+  exceeds its wall-clock budget, counts as failed. The budget is 90 seconds by default; `sftp` gets
+  12 minutes because its 1 GB transfer legitimately runs long (`TIMEOUTS_MS` in
+  `scripts/run-smoke.mjs`). Add an entry there if you write a suite that needs more than 90s rather
+  than raising the default for everyone.
 - Harnesses always redirect the vault to a fresh temp database (`setSmokeDbPath`) before anything can
   open the real one. Keep that ordering if you add a suite; it is the only thing standing between a
   smoke run and a developer's actual hosts.
