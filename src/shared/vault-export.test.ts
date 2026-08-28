@@ -91,9 +91,9 @@ describe('parseVaultExport', () => {
   })
 
   it('rejects an unsupported version', () => {
-    expect(() =>
-      parseVaultExport({ format: VAULT_EXPORT_FORMAT, version: 999, data: {} }),
-    ).toThrow(/unsupported version/)
+    expect(() => parseVaultExport({ format: VAULT_EXPORT_FORMAT, version: 999, data: {} })).toThrow(
+      /unsupported version/,
+    )
   })
 
   it('rejects an envelope with no data', () => {
