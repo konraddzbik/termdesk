@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   AI_DISABLED,
   type AiBackendConfig,
-  describeBackend,
   defaultBaseUrl,
+  describeBackend,
   isAiEnabled,
   isLocalBackend,
   resolveChatEndpoint,
@@ -13,9 +13,9 @@ import {
 describe('isAiEnabled', () => {
   it('is off by default (kind none)', () => {
     expect(isAiEnabled(AI_DISABLED)).toBe(false)
-    expect(isAiEnabled({ kind: 'ollama', baseUrl: 'http://localhost:11434', model: 'llama3' })).toBe(
-      true,
-    )
+    expect(
+      isAiEnabled({ kind: 'ollama', baseUrl: 'http://localhost:11434', model: 'llama3' }),
+    ).toBe(true)
   })
 })
 
