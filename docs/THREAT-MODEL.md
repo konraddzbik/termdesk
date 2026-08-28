@@ -39,7 +39,8 @@ reporting (see [`SECURITY.md`](../SECURITY.md)).
   TLS certs (`rdp_known_certs`): a changed fingerprint on a pinned endpoint
   refuses the connection.
 - **VNC is tunneled by default** over SSH with single-use, 30-second bridge
-  tokens; port 5900 is never exposed.
+  tokens, so port 5900 is not exposed on the default path. (A `direct` VNC mode
+  is available for VNC-only hosts that opt into it.)
 
 ## How TermDesk contrasts with the field
 

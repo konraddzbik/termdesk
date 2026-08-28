@@ -16,15 +16,16 @@ const asJson = process.argv.includes('--json')
 // A measurement we can make right now without the app: how long it takes to
 // require the built shared bundle equivalent (a cheap, stable proxy that CI can
 // trend). Real app metrics land when the harness spawns the packaged binary.
-function measureModuleInitMs() {
+async function measureModuleInitMs() {
   const start = performance.now()
-  // Touch a few core Node built-ins the app loads at startup.
-  void [import('node:crypto'), import('node:path'), import('node:os')]
+  // Actually load a few core Node built-ins the app pulls at startup, and AWAIT
+  // them — otherwise this times promise construction (≈0), not module load.
+  await Promise.all([import('node:crypto'), import('node:path'), import('node:os')])
   return Number((performance.now() - start).toFixed(3))
 }
 
 const results = [
-  { metric: 'moduleInitMs', value: measureModuleInitMs(), unit: 'ms', status: 'measured' },
+  { metric: 'moduleInitMs', value: await measureModuleInitMs(), unit: 'ms', status: 'measured' },
   // Pending: require the packaged app + a headless driver.
   { metric: 'coldStartMs', value: null, unit: 'ms', status: 'pending' },
   { metric: 'keystrokeLatencyMs', value: null, unit: 'ms', status: 'pending' },

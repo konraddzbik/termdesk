@@ -59,6 +59,15 @@ export function checkBudgets(
   const missing: string[] = []
 
   for (const budget of budgets) {
+    if (budget.max == null && budget.min == null) {
+      // A budget that asserts nothing can't silently pass — that would turn a
+      // typo'd budget into a false green.
+      failures.push({
+        metric: budget.metric,
+        message: `${budget.metric}: budget defines neither max nor min`,
+      })
+      continue
+    }
     const result = byMetric.get(budget.metric)
     if (!result) {
       missing.push(budget.metric)

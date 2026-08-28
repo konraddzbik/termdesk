@@ -44,6 +44,12 @@ describe('checkBudgets', () => {
     expect(report.passed).toBe(false)
     expect(report.missing).toEqual([METRICS.coldStartMs])
   })
+
+  it('rejects a budget that asserts neither max nor min', () => {
+    const report = checkBudgets(results, [{ metric: METRICS.coldStartMs }])
+    expect(report.passed).toBe(false)
+    expect(report.failures[0]?.message).toMatch(/neither max nor min/)
+  })
 })
 
 describe('formatBudgetReport', () => {
