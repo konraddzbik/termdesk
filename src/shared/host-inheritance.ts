@@ -104,7 +104,10 @@ export function resolveInheritedHost(
   // Tags: union, host first then ancestors nearest→farthest, de-duplicated, order preserved.
   const tags: string[] = []
   const seen = new Set<string>()
-  for (const tag of [...host.tags, ...ancestorsNearestFirst.flatMap((a) => a.defaults.tags ?? [])]) {
+  for (const tag of [
+    ...host.tags,
+    ...ancestorsNearestFirst.flatMap((a) => a.defaults.tags ?? []),
+  ]) {
     if (!seen.has(tag)) {
       seen.add(tag)
       tags.push(tag)
