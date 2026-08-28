@@ -80,7 +80,9 @@ export function isLocalBackend(config: AiBackendConfig): boolean {
   if (config.kind === 'none') return false
   if (config.kind === 'ollama' && !config.baseUrl) return true
   const host = safeHostname(config.baseUrl)
-  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
+  if (host === null) return false
+  // Whole 127.0.0.0/8 loopback range, not just 127.0.0.1, plus IPv6 loopback.
+  return host === 'localhost' || /^127\./.test(host) || host === '::1' || host === '[::1]'
 }
 
 function safeHostname(url: string | undefined): string | null {

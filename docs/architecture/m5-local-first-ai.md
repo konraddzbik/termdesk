@@ -14,8 +14,8 @@ This PR lands the **AI backend abstraction** (`src/shared/ai-backend.ts`) — th
 `AiBackendConfig` is renderer-safe by construction: `{ kind: 'none' | 'ollama' | 'openai-compatible', baseUrl?, model?, hasApiKey? }` — **no `apiKey` field** (a test asserts this). `kind: 'none'` is the default, so **AI is off until the user opts in**. Helpers: `validateAiBackend`, `resolveChatEndpoint` (Ollama `/api/chat`, OpenAI-compatible `/v1/chat/completions`), and `isLocalBackend` (Ollama / loopback → drives the "local only" privacy badge). Pure — no network.
 
 ### Integration plan (follow-up)
-1. **Settings** — add `aiBackend` to `settingsSchema` (`src/shared/ipc.ts`) using this shape; the API key is stored separately in the vault via a `secrets.ts` entry, never in `settings.json`.
-2. **Main** — a small `ai-client.ts` in `src/main` that takes the resolved endpoint + the vault key and performs the chat call (streaming), reused by NL→command / explain / completion ranking. This is the only module that reads the key.
+1. **Settings** — add `aiBackend` to `settingsSchema` (`src/shared/ipc.ts`) using this shape. The API key is **not** in `settings.json`: store its ciphertext in a new vault column/table, encrypted through `secrets.ts` (which is encrypt/decrypt only — it has no storage of its own).
+2. **Main** — a small `ai-client.ts` in `src/main` that takes the resolved endpoint + the key (decrypted **via `secrets.ts`**, never a direct `safeStorage` call, to keep `secrets.ts` the only `safeStorage` caller) and performs the chat call (streaming), reused by NL→command / explain / completion ranking. This is the only module that handles the key.
 3. **Renderer** — a settings panel (backend picker + the "local only" indicator from `isLocalBackend`), and AI actions that are inert when `isAiEnabled` is false.
 
 Privacy invariant: nothing is sent anywhere unless the user configured a backend and explicitly invoked an action; the key never leaves main; loopback backends light the "local" badge.

@@ -75,6 +75,10 @@ describe('isLocalBackend', () => {
     expect(
       isLocalBackend({ kind: 'openai-compatible', baseUrl: 'http://127.0.0.1:8080', model: 'x' }),
     ).toBe(true)
+    // Whole 127.0.0.0/8 range, not just .1.
+    expect(
+      isLocalBackend({ kind: 'openai-compatible', baseUrl: 'http://127.0.0.2:8080', model: 'x' }),
+    ).toBe(true)
   })
 
   it('treats remote endpoints as non-local', () => {
