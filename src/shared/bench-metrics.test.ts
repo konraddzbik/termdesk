@@ -34,9 +34,7 @@ describe('checkBudgets', () => {
   })
 
   it('fails a min budget that is not met', () => {
-    const report = checkBudgets(results, [
-      { metric: METRICS.heavyOutputThroughputOps, min: 9000 },
-    ])
+    const report = checkBudgets(results, [{ metric: METRICS.heavyOutputThroughputOps, min: 9000 }])
     expect(report.passed).toBe(false)
     expect(report.failures[0]?.message).toMatch(/below required 9000ops/)
   })
@@ -50,7 +48,9 @@ describe('checkBudgets', () => {
 
 describe('formatBudgetReport', () => {
   it('summarizes a pass', () => {
-    expect(formatBudgetReport({ passed: true, failures: [], missing: [] })).toMatch(/all .* budgets met/)
+    expect(formatBudgetReport({ passed: true, failures: [], missing: [] })).toMatch(
+      /all .* budgets met/,
+    )
   })
 
   it('lists failures and missing metrics', () => {
