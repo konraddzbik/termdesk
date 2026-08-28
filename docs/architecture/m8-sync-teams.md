@@ -9,6 +9,8 @@ This PR lands the **portable, secret-safe export envelope** (`src/shared/vault-e
 
 Rationale: safeStorage ciphertext is machine-bound (OS-keychain key), so it is useless on another machine — exporting it would be a leak with no benefit. The `has*` boolean flags survive so the importer can tell the user exactly which hosts/credentials need a secret re-entered, then re-key them into the local vault.
 
+**Content-field caveat (architecture-review finding).** The stripper is *key-name* based: it removes secret-typed fields (`*_enc`, `password*`, `apiKey`, …) but NOT a secret a user embedded in a free-text **content** field — `automationJobs.command`, `snippets.command`, `routines.variables` (e.g. `mysql -pSECRET`, an API token pasted into a snippet). Those are legitimate content, so they are not stripped by key name. The export/import layer (`vault-io.ts`, follow-up) MUST run those specific fields through `src/shared/redact.ts::redactSecrets` before they reach the envelope. `parseVaultExport` additionally re-runs the stripper on import as defense-in-depth against a tampered envelope.
+
 ### Integration plan (follow-up)
 1. **Main** — `src/main/ipc/vault-io.ts`: gather host/group/credential/settings DTOs (already secret-free), call `buildVaultExport`, write the JSON; import validates via `parseVaultExport` and upserts through the existing repos, re-encrypting any user-supplied secret via `secrets.ts`.
 2. **Renderer** — Export/Import actions in settings; an import preview listing items + which need a secret.

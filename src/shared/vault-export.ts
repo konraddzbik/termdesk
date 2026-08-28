@@ -14,6 +14,13 @@
  * can never ride along), and a validating parser. Git-friendly and diff-able;
  * the passphrase-encrypted secret bundle for true cross-machine sync is the
  * separate #62 enhancement.
+ *
+ * CAVEAT (see docs/architecture/m8-sync-teams.md): the stripper is *key-name*
+ * based, so it removes secret-typed fields but NOT secrets a user embedded in a
+ * free-text CONTENT field (`automationJobs.command`, `snippets.command`,
+ * `routines.variables` — e.g. `mysql -pSECRET`). The export/import layer that
+ * gathers those fields MUST pass them through `redact.ts::redactSecrets` before
+ * they reach the envelope.
  */
 
 export const VAULT_EXPORT_FORMAT = 'termdesk-vault'
@@ -35,7 +42,7 @@ export interface VaultExport<T = unknown> {
  * key-material field, however nested.
  */
 const SECRET_KEY_RE =
-  /(password|passphrase|secret|token|api[-_]?key|private[-_]?key|_enc$|enc$|credential[-_]?secret)/i
+  /(password|passphrase|secret|token|api[-_]?key|private[-_]?key|_enc$|credential[-_]?secret)/i
 
 export interface StripResult<T> {
   cleaned: T
@@ -114,11 +121,14 @@ export function parseVaultExport<T = unknown>(input: unknown): VaultExport<T> {
   if (!('data' in env)) {
     throw new VaultImportError('export has no data')
   }
+  // Defense-in-depth: re-strip on import too, so a hand-crafted or tampered
+  // envelope that smuggled a secret-looking field cannot inject it into the
+  // vault. `secretsIncluded` is always forced false regardless of the input flag.
   return {
     format: VAULT_EXPORT_FORMAT,
     version: VAULT_EXPORT_VERSION,
     secretsIncluded: false,
     exportedAt: env.exportedAt,
-    data: env.data as T,
+    data: stripSecretFields(env.data as T).cleaned,
   }
 }

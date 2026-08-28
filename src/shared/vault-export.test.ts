@@ -99,4 +99,16 @@ describe('parseVaultExport', () => {
   it('rejects an envelope with no data', () => {
     expect(() => parseVaultExport({ format: VAULT_EXPORT_FORMAT, version: 1 })).toThrow(/no data/)
   })
+
+  it('re-strips secrets on import (defense-in-depth against a tampered envelope)', () => {
+    const tampered = {
+      format: VAULT_EXPORT_FORMAT,
+      version: 1,
+      secretsIncluded: true, // lying flag — must be ignored
+      data: { hosts: [{ id: 'h1', passwordEnc: 'SMUGGLED' }] },
+    }
+    const parsed = parseVaultExport<{ hosts: Array<Record<string, unknown>> }>(tampered)
+    expect(parsed.secretsIncluded).toBe(false)
+    expect(parsed.data.hosts[0]).not.toHaveProperty('passwordEnc')
+  })
 })
