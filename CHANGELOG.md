@@ -30,6 +30,15 @@ TermDesk's source is now published under the **MIT Licence**.
   issues stay disabled), and `EULA.txt` points at that instead of a non-existent
   discussion. `SECURITY.md` no longer implies a `security.txt` that no website
   serves. A `community-polish` doc-contract test guards all of the above.
+- **Release-pipeline readiness (community polish):** the E2E smoke suite can now
+  gate a pull request — opt-in by adding the `e2e` label (`e2e.yml`) so the heavy
+  Docker+xvfb run stays off every PR until it is proven. New unit tests exercise
+  the self-update client wiring (`updater.test.ts`: feed points only at this
+  repo, macOS self-update gated off, no downgrades), and a release-pipeline
+  contract test locks in the fail-closed macOS arch check across `ci.yml` and
+  `release.yml` and the tag=`v`+version gate. A new `RELEASING.md` runbook
+  documents how to cut the first Release and the signing / Intel-x64 / self-update
+  constraints that gate it.
 
 
 - **No licence check, no seat, no account.** The commercial licensing subsystem has been removed from

@@ -17,8 +17,11 @@ import { getSettings } from './store/settings'
  * update an unsigned app); Mac users get new builds via the manual download.
  */
 
-const GITHUB_OWNER = 'konraddzbik'
-const GITHUB_REPO = 'termdesk'
+// Exported for tests: the release feed's identity is a security-relevant
+// invariant (updates come only from this repo's Releases), so it is asserted
+// in updater.test.ts rather than left to drift.
+export const GITHUB_OWNER = 'konraddzbik'
+export const GITHUB_REPO = 'termdesk'
 /** Where to send users for a manual download (macOS, or update failures). */
 const DOWNLOADS_URL =
   devEnvFlag('DOWNLOADS_URL') ?? `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
@@ -30,8 +33,8 @@ export function openReleasesPage(): void {
   void shell.openExternal(DOWNLOADS_URL)
 }
 
-/** win/linux self-update; darwin (unsigned) is intentionally unsupported. */
-function platformSegment(): PlatformSegment | null {
+/** win/linux self-update; darwin (unsigned) is intentionally unsupported. Exported for tests. */
+export function platformSegment(): PlatformSegment | null {
   if (process.platform === 'win32') return 'win'
   if (process.platform === 'linux') return 'linux'
   return null
@@ -57,7 +60,7 @@ function setState(patch: Partial<UpdateState>): void {
  * Points the updater at this repository's GitHub Releases. Returns false when
  * the platform has no self-update support — the caller then skips.
  */
-function configure(): boolean {
+export function configure(): boolean {
   if (!platformSegment()) return false
   // A 'beta' preference maps to GitHub pre-releases; 'stable' takes published
   // releases only. This is the GitHub provider's equivalent of a channel.
