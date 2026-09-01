@@ -224,17 +224,32 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # No --paginate here: a reducing jq (`first`) under --paginate runs
-          # per page and would emit a stray line for every empty page. One
-          # 100-item page covers a fresh repo's release list; `// empty` drops a
-          # no-match to nothing and head -n1 keeps rid a single token.
-          rid="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-                   --jq "[.[] | select(.tag_name==\"$GITHUB_REF_NAME\")] | first | .id // empty" \
-                 | head -n1)"
-          if [ -z "$rid" ] || [ "$rid" = "null" ]; then
-            echo "::error::no Release found for tag $GITHUB_REF_NAME"
+          # GitHub allows more than one DRAFT release to share a tag_name, and
+          # this pipeline has two writers that find-or-create a draft for the tag
+          # (electron-builder --publish always on win/linux, softprops on every
+          # platform). max-parallel:1 makes them converge on one draft in
+          # practice, but "pick the first tag match" would be non-deterministic
+          # if they ever split. So resolve to the exact draft that actually
+          # CARRIES the installers, and fail loudly on zero or more than one —
+          # never checksum a partial set. (per_page=100, no --paginate: a
+          # reducing jq under --paginate emits a stray line per empty page.)
+          mapfile -t rids < <(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name==\"$GITHUB_REF_NAME\") | .id")
+          carriers=()
+          for r in "${rids[@]}"; do
+            has="$(gh api "repos/$GITHUB_REPOSITORY/releases/$r/assets?per_page=100" \
+                     --jq 'any(.[]; .name | test("\\.(dmg|exe|AppImage|deb)$"))')"
+            [ "$has" = "true" ] && carriers+=("$r")
+          done
+          if [ "${#carriers[@]}" -eq 0 ]; then
+            echo "::error::no Release for $GITHUB_REF_NAME carries installer assets"
             exit 1
           fi
+          if [ "${#carriers[@]}" -gt 1 ]; then
+            echo "::error::multiple Releases for $GITHUB_REF_NAME carry installers: ${carriers[*]}"
+            exit 1
+          fi
+          rid="${carriers[0]}"
           echo "release id: $rid"
           mkdir -p checksum-work
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$rid/assets" \
@@ -251,7 +266,10 @@ jobs:
 
       # sha256sum's own `-c` format (`<hash>␣␣<name>`), so a user verifies with
       # `sha256sum -c SHA256SUMS.txt` (or `shasum -a 256 -c` on macOS). Sorted by
-      # filename so the file is stable across runs and easy to eyeball.
+      # filename so the file is stable across runs and easy to eyeball. This
+      # assumes installer filenames have no spaces (they don't: electron-builder
+      # names them TermDesk-<ver>-<arch>.dmg etc.); a spaced name would make
+      # sha256sum escape the line and break `sort -k2`.
       - name: Compute SHA256SUMS.txt
         run: |
           set -euo pipefail

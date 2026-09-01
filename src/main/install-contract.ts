@@ -330,37 +330,90 @@ export function installerExtensions(builder: BuilderPackaging): string[] {
 }
 
 export type ReleaseWorkflowUploads = {
-  /** Distinct installer extensions the workflow attaches via `dist/*.<ext>` globs. */
+  /** Installer extensions attached to the Release (from softprops `files:` blocks). */
   uploadExts: string[]
-  /** Whether a SHA256SUMS checksum file is attached to the Release. */
+  /** Installer extensions the checksum job's `case "$name" in` filter accepts. */
+  checksumExts: string[]
+  /** Whether a SHA256SUMS file is an actual Release upload target (not just a comment). */
   attachesChecksums: boolean
   /** Whether Release uploads are gated on a `refs/tags/` ref. */
   tagGuardedRelease: boolean
 }
 
 /**
- * Read what release.yml uploads without a YAML parser: the workflow references
- * every installer as a `dist/*.<ext>` glob, so the set of those exts is the set
- * of installers that reach the Release. Also detects the checksum attachment and
- * the tag guard. Text-level on purpose — it tracks the file the maintainer edits.
+ * Every `files:` entry across the workflow's `softprops/action-gh-release` steps
+ * — the steps that attach assets to the GitHub Release. Scoped to those steps on
+ * purpose: a bare file-wide scan would also pick up the `upload-artifact`
+ * globs (14-day CI artifacts, a different destination) and let a dropped Release
+ * upload pass. Handles both `files: <inline>` and a `files: |` block scalar.
+ */
+function softpropsFileEntries(yml: string): string[] {
+  const lines = yml.split(/\r?\n/)
+  const entries: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (!/uses:\s*softprops\/action-gh-release/.test(lines[i] ?? '')) continue
+    // Scan this step forward to its `files:` key.
+    for (let j = i + 1; j < lines.length; j++) {
+      const m = /^(\s*)files:\s*(.*)$/.exec(lines[j] ?? '')
+      if (!m) continue
+      const filesIndent = m[1]?.length ?? 0
+      const inline = (m[2] ?? '').trim()
+      if (inline && inline !== '|' && inline !== '>') {
+        entries.push(inline)
+      } else {
+        for (let k = j + 1; k < lines.length; k++) {
+          const raw = lines[k] ?? ''
+          if (raw.trim() === '') continue
+          const indent = raw.length - raw.trimStart().length
+          if (indent <= filesIndent) break
+          entries.push(raw.trim().replace(/^-\s*/, ''))
+        }
+      }
+      break
+    }
+  }
+  return entries
+}
+
+/** The installer exts named in the checksum job's `case "$name" in …)` filter. */
+function checksumCaseExts(yml: string): string[] {
+  const m = /case\s+"\$name"\s+in\s*\n\s*([^\n)]*)\)/.exec(yml)
+  if (!m?.[1]) return []
+  return [...new Set([...m[1].matchAll(/\*\.([A-Za-z0-9]+)/g)].map((x) => x[1] as string))]
+}
+
+/**
+ * Read what release.yml actually publishes, without a YAML parser but scoped to
+ * the steps that matter: installer exts come from the softprops `files:` blocks
+ * (what reaches the Release), the checksum coverage from the checksum job's
+ * `case` filter, and the checksum attachment from a real SHA256SUMS upload entry
+ * — none of which a comment mentioning "SHA256SUMS" can spoof.
  */
 export function parseReleaseWorkflowUploads(yml: string): ReleaseWorkflowUploads {
+  const entries = softpropsFileEntries(yml)
   const uploadExts = [
-    ...new Set([...yml.matchAll(/dist\/\*\.([A-Za-z0-9]+)/g)].map((m) => m[1] as string)),
+    ...new Set(
+      entries.flatMap((e) => {
+        const m = /^dist\/\*\.([A-Za-z0-9]+)$/.exec(e)
+        return m?.[1] ? [m[1]] : []
+      }),
+    ),
   ]
   return {
     uploadExts,
-    attachesChecksums: /SHA256SUMS/.test(yml),
+    checksumExts: checksumCaseExts(yml),
+    attachesChecksums: entries.some((e) => /SHA256SUMS/.test(e)),
     tagGuardedRelease: /startsWith\(github\.ref,\s*'refs\/tags\//.test(yml),
   }
 }
 
 /**
  * Every installer electron-builder produces must actually be attached to the
- * Release, a checksum file must accompany them, and the whole publish path must
- * be tag-gated. Catches the silent drift where a new packaging target is added
- * to electron-builder.yml but never wired into the Release upload globs — so it
- * builds in CI yet never reaches a single user.
+ * Release AND hashed into SHA256SUMS.txt, a checksum file must accompany them,
+ * and the whole publish path must be tag-gated. Catches the silent drift where a
+ * new packaging target is added to electron-builder.yml but never wired into the
+ * Release upload globs or the checksum job — so it builds in CI yet reaches a
+ * user unlisted or unverifiable.
  */
 export function checkReleaseWorkflowContract(
   builder: BuilderPackaging,
@@ -371,6 +424,11 @@ export function checkReleaseWorkflowContract(
     if (!uploads.uploadExts.includes(ext)) {
       errors.push(
         `release.yml never uploads dist/*.${ext}, but electron-builder.yml produces a .${ext} installer`,
+      )
+    }
+    if (!uploads.checksumExts.includes(ext)) {
+      errors.push(
+        `release.yml's checksum job never hashes a .${ext} installer, but electron-builder.yml produces one`,
       )
     }
   }

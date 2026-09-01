@@ -29,7 +29,8 @@ import {
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
 // A release.yml shaped like the real one: installers attached by `dist/*.<ext>`
-// globs, a checksum file, and the tag guard.
+// globs in a softprops step, a checksum job whose `case` filter names the same
+// exts and which attaches SHA256SUMS.txt, and the tag guard.
 const MINIMAL_RELEASE_WORKFLOW = `on:
   push:
     tags:
@@ -37,6 +38,14 @@ const MINIMAL_RELEASE_WORKFLOW = `on:
 jobs:
   package:
     steps:
+      # An upload-artifact step whose globs must NOT be mistaken for Release uploads.
+      - uses: actions/upload-artifact@v7
+        with:
+          path: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
       - name: Publish installers to GitHub Release (draft)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@abc
@@ -48,6 +57,11 @@ jobs:
             dist/*.deb
   checksums:
     steps:
+      - run: |
+          case "$name" in
+            *.dmg|*.exe|*.AppImage|*.deb)
+              echo hash ;;
+          esac
       - name: Attach SHA256SUMS.txt to the draft Release
         uses: softprops/action-gh-release@abc
         with:
@@ -283,16 +297,48 @@ describe('installerExtensions', () => {
 })
 
 describe('parseReleaseWorkflowUploads', () => {
-  it('reads the uploaded installer exts, checksum attachment and tag guard', () => {
+  it('reads the uploaded installer exts, checksum coverage, attachment and tag guard', () => {
     const uploads = parseReleaseWorkflowUploads(MINIMAL_RELEASE_WORKFLOW)
     expect(uploads.uploadExts).toEqual(['dmg', 'exe', 'AppImage', 'deb'])
+    expect(uploads.checksumExts).toEqual(['dmg', 'exe', 'AppImage', 'deb'])
     expect(uploads.attachesChecksums).toBe(true)
     expect(uploads.tagGuardedRelease).toBe(true)
   })
 
-  it('reports a missing checksum file and a missing tag guard', () => {
-    const uploads = parseReleaseWorkflowUploads('with:\n  files: |\n    dist/*.dmg\n')
-    expect(uploads.uploadExts).toEqual(['dmg'])
+  it('scopes uploadExts to softprops files:, ignoring upload-artifact path: globs', () => {
+    // Drop .deb from the softprops (Release) block only; the upload-artifact
+    // block above still lists it. A file-wide scan would be fooled; this is not.
+    const softpropsDebGone = MINIMAL_RELEASE_WORKFLOW.replace(
+      `        with:
+          files: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb`,
+      `        with:
+          files: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage`,
+    )
+    const uploads = parseReleaseWorkflowUploads(softpropsDebGone)
+    expect(uploads.uploadExts).toEqual(['dmg', 'exe', 'AppImage'])
+  })
+
+  it('does not accept a SHA256SUMS mention that is only a comment', () => {
+    const commentOnly = `jobs:
+  checksums:
+    steps:
+      # this build attaches SHA256SUMS.txt somewhere, honest
+      - run: echo no upload here
+`
+    expect(parseReleaseWorkflowUploads(commentOnly).attachesChecksums).toBe(false)
+  })
+
+  it('reports no uploads, no checksum file and no tag guard for an empty workflow', () => {
+    const uploads = parseReleaseWorkflowUploads('jobs:\n  build:\n    steps: []\n')
+    expect(uploads.uploadExts).toEqual([])
+    expect(uploads.checksumExts).toEqual([])
     expect(uploads.attachesChecksums).toBe(false)
     expect(uploads.tagGuardedRelease).toBe(false)
   })
@@ -307,33 +353,53 @@ describe('checkReleaseWorkflowContract', () => {
   })
 
   it('flags an installer that electron-builder produces but release.yml never uploads', () => {
-    const missingDeb = MINIMAL_RELEASE_WORKFLOW.replace('            dist/*.deb\n', '')
+    // Remove .deb from the softprops (Release) block only — the checksum case
+    // still lists it, so the sole error is the missing Release upload.
+    const missingDeb = MINIMAL_RELEASE_WORKFLOW.replace(
+      `        with:
+          files: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb`,
+      `        with:
+          files: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage`,
+    )
     const errors = checkReleaseWorkflowContract(builder, parseReleaseWorkflowUploads(missingDeb))
     expect(errors).toEqual([
       'release.yml never uploads dist/*.deb, but electron-builder.yml produces a .deb installer',
     ])
   })
 
-  it('flags a release workflow with no checksum file', () => {
-    const noSums = `on:
-  push:
-    tags:
-      - 'v*'
-jobs:
-  package:
-    steps:
-      - if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            dist/*.dmg
-            dist/*.exe
-            dist/*.AppImage
-            dist/*.deb
-`
-    const errors = checkReleaseWorkflowContract(builder, parseReleaseWorkflowUploads(noSums))
-    expect(errors).toContain(
-      'release.yml does not attach a SHA256SUMS checksum file to the Release',
+  it('flags an installer uploaded to the Release but missing from the checksum job', () => {
+    // Drop .deb from the checksum `case` only — it still reaches the Release but
+    // would ship without a checksum line.
+    const missingFromCase = MINIMAL_RELEASE_WORKFLOW.replace(
+      '*.dmg|*.exe|*.AppImage|*.deb)',
+      '*.dmg|*.exe|*.AppImage)',
     )
+    const errors = checkReleaseWorkflowContract(
+      builder,
+      parseReleaseWorkflowUploads(missingFromCase),
+    )
+    expect(errors).toEqual([
+      "release.yml's checksum job never hashes a .deb installer, but electron-builder.yml produces one",
+    ])
+  })
+
+  it('flags a release workflow with no checksum file', () => {
+    // A softprops step that uploads installers but attaches no SHA256SUMS file.
+    const noSums = MINIMAL_RELEASE_WORKFLOW.replace(
+      'files: SHA256SUMS.txt',
+      'files: RELEASE-NOTES.md',
+    )
+    const errors = checkReleaseWorkflowContract(builder, parseReleaseWorkflowUploads(noSums))
+    expect(errors).toEqual([
+      'release.yml does not attach a SHA256SUMS checksum file to the Release',
+    ])
   })
 })
 
