@@ -122,6 +122,15 @@ builds unsigned installers for macOS, Windows and Linux, and attaches them to a
 **draft** GitHub Release. Publishing that draft by hand is what would make the
 Releases page a real download source. That has not happened yet.
 
+Every Release also carries a `SHA256SUMS.txt` listing the SHA-256 of each
+installer, so once downloads exist you can verify one before running it:
+
+```bash
+# from the folder holding the installer and SHA256SUMS.txt
+sha256sum -c SHA256SUMS.txt   # Linux
+shasum -a 256 -c SHA256SUMS.txt   # macOS
+```
+
 Do not treat the Releases page as a download until the first Release exists.
 
 ## Updates

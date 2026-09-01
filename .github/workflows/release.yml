@@ -203,6 +203,95 @@ jobs:
             dist/*.AppImage
             dist/*.deb
 
+  # A download over the public internet needs an integrity anchor: a user who
+  # grabs TermDesk-<ver>.exe from the Releases page has no way to tell a corrupt
+  # or tampered file from a good one. This job runs after all three platform jobs
+  # have attached their installers to the (draft) Release, reads those exact bytes
+  # back, and attaches one SHA256SUMS.txt covering every installer — the file
+  # `sha256sum -c SHA256SUMS.txt` verifies against. Tag-only: a workflow_dispatch
+  # run creates no Release, so there is nothing to checksum.
+  checksums:
+    name: Checksums
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      # Resolve THIS tag's Release — including a draft, which `gh release view`
+      # cannot always address by tag — via the REST API, then stream each
+      # installer asset straight from the API (drafts are not on a public URL).
+      - name: Download installer assets from the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # GitHub allows more than one DRAFT release to share a tag_name, and
+          # this pipeline has two writers that find-or-create a draft for the tag
+          # (electron-builder --publish always on win/linux, softprops on every
+          # platform). max-parallel:1 makes them converge on one draft in
+          # practice, but "pick the first tag match" would be non-deterministic
+          # if they ever split. So resolve to the exact draft that actually
+          # CARRIES the installers, and fail loudly on zero or more than one —
+          # never checksum a partial set. (per_page=100, no --paginate: a
+          # reducing jq under --paginate emits a stray line per empty page.)
+          mapfile -t rids < <(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name==\"$GITHUB_REF_NAME\") | .id")
+          carriers=()
+          for r in "${rids[@]}"; do
+            has="$(gh api "repos/$GITHUB_REPOSITORY/releases/$r/assets?per_page=100" \
+                     --jq 'any(.[]; .name | test("\\.(dmg|exe|AppImage|deb)$"))')"
+            [ "$has" = "true" ] && carriers+=("$r")
+          done
+          if [ "${#carriers[@]}" -eq 0 ]; then
+            echo "::error::no Release for $GITHUB_REF_NAME carries installer assets"
+            exit 1
+          fi
+          if [ "${#carriers[@]}" -gt 1 ]; then
+            echo "::error::multiple Releases for $GITHUB_REF_NAME carry installers: ${carriers[*]}"
+            exit 1
+          fi
+          rid="${carriers[0]}"
+          echo "release id: $rid"
+          mkdir -p checksum-work
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$rid/assets" \
+            --jq '.[] | [.id, .name] | @tsv' \
+          | while IFS=$'\t' read -r id name; do
+              case "$name" in
+                *.dmg|*.exe|*.AppImage|*.deb)
+                  echo "downloading $name"
+                  gh api -H 'Accept: application/octet-stream' \
+                    "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "checksum-work/$name" ;;
+              esac
+            done
+          ls -la checksum-work
+
+      # sha256sum's own `-c` format (`<hash>␣␣<name>`), so a user verifies with
+      # `sha256sum -c SHA256SUMS.txt` (or `shasum -a 256 -c` on macOS). Sorted by
+      # filename so the file is stable across runs and easy to eyeball. This
+      # assumes installer filenames have no spaces (they don't: electron-builder
+      # names them TermDesk-<ver>-<arch>.dmg etc.); a spaced name would make
+      # sha256sum escape the line and break `sort -k2`.
+      - name: Compute SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          cd checksum-work
+          if [ -z "$(ls -A)" ]; then
+            echo "::error::no installer assets were downloaded"
+            exit 1
+          fi
+          sha256sum * | sort -k2 > ../SHA256SUMS.txt
+          echo "---- SHA256SUMS.txt ----"
+          cat ../SHA256SUMS.txt
+
+      - name: Attach SHA256SUMS.txt to the draft Release
+        # Pinned to a commit for the same reason the package job pins it: a
+        # contents:write action must not float on a mutable tag.
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
+          files: SHA256SUMS.txt
+
   # Note: installers are attached to the GitHub Release directly by each platform
   # job above (quota-proof, separate storage). On a tag push they land on a DRAFT
   # release — both paths that touch it agree on that: electron-builder is invoked

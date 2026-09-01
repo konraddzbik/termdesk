@@ -23,6 +23,9 @@ export const GITHUB_REPO = 'konraddzbik/termdesk'
  */
 export const RELEASED_ARTIFACTS: readonly string[] = []
 
+/** Release workflow the packaging contract cross-checks against the builder config. */
+export const RELEASE_WORKFLOW_PATH = '.github/workflows/release.yml'
+
 /** User-facing files the honesty check reads. */
 export const INSTALL_DOC_PATHS = [
   'INSTALL.md',
@@ -314,6 +317,146 @@ export function checkInstallContract(
 
 export function checkRepoInstallContract(repoRoot: string): InstallContractReport {
   return checkInstallContract(loadInstallContractFiles(repoRoot), RELEASED_ARTIFACTS)
+}
+
+/**
+ * The installer file extensions electron-builder.yml actually produces, in a
+ * stable order: macOS `dmg`, Windows `exe`, then each Linux target
+ * (`AppImage`, `deb`). Case is preserved — `AppImage`, not `appimage` — because
+ * that is exactly how the file lands in `dist/` and how release.yml globs it.
+ */
+export function installerExtensions(builder: BuilderPackaging): string[] {
+  return [...new Set(['dmg', builder.win.ext, ...builder.linux.exts])]
+}
+
+export type ReleaseWorkflowUploads = {
+  /** Installer extensions attached to the Release (from softprops `files:` blocks). */
+  uploadExts: string[]
+  /** Installer extensions the checksum job's `case "$name" in` filter accepts. */
+  checksumExts: string[]
+  /** Whether a SHA256SUMS file is an actual Release upload target (not just a comment). */
+  attachesChecksums: boolean
+  /** Whether Release uploads are gated on a `refs/tags/` ref. */
+  tagGuardedRelease: boolean
+}
+
+/**
+ * Every `files:` entry across the workflow's `softprops/action-gh-release` steps
+ * — the steps that attach assets to the GitHub Release. Scoped to those steps on
+ * purpose: a bare file-wide scan would also pick up the `upload-artifact`
+ * globs (14-day CI artifacts, a different destination) and let a dropped Release
+ * upload pass. Handles both `files: <inline>` and a `files: |` block scalar.
+ */
+function softpropsFileEntries(yml: string): string[] {
+  const lines = yml.split(/\r?\n/)
+  const entries: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (!/uses:\s*softprops\/action-gh-release/.test(lines[i] ?? '')) continue
+    // Scan this step forward to its `files:` key.
+    for (let j = i + 1; j < lines.length; j++) {
+      const m = /^(\s*)files:\s*(.*)$/.exec(lines[j] ?? '')
+      if (!m) continue
+      const filesIndent = m[1]?.length ?? 0
+      const inline = (m[2] ?? '').trim()
+      if (inline && inline !== '|' && inline !== '>') {
+        entries.push(inline)
+      } else {
+        for (let k = j + 1; k < lines.length; k++) {
+          const raw = lines[k] ?? ''
+          if (raw.trim() === '') continue
+          const indent = raw.length - raw.trimStart().length
+          if (indent <= filesIndent) break
+          entries.push(raw.trim().replace(/^-\s*/, ''))
+        }
+      }
+      break
+    }
+  }
+  return entries
+}
+
+/** The installer exts named in the checksum job's `case "$name" in …)` filter. */
+function checksumCaseExts(yml: string): string[] {
+  const m = /case\s+"\$name"\s+in\s*\n\s*([^\n)]*)\)/.exec(yml)
+  if (!m?.[1]) return []
+  return [...new Set([...m[1].matchAll(/\*\.([A-Za-z0-9]+)/g)].map((x) => x[1] as string))]
+}
+
+/**
+ * Read what release.yml actually publishes, without a YAML parser but scoped to
+ * the steps that matter: installer exts come from the softprops `files:` blocks
+ * (what reaches the Release), the checksum coverage from the checksum job's
+ * `case` filter, and the checksum attachment from a real SHA256SUMS upload entry
+ * — none of which a comment mentioning "SHA256SUMS" can spoof.
+ */
+export function parseReleaseWorkflowUploads(yml: string): ReleaseWorkflowUploads {
+  const entries = softpropsFileEntries(yml)
+  const uploadExts = [
+    ...new Set(
+      entries.flatMap((e) => {
+        const m = /^dist\/\*\.([A-Za-z0-9]+)$/.exec(e)
+        return m?.[1] ? [m[1]] : []
+      }),
+    ),
+  ]
+  return {
+    uploadExts,
+    checksumExts: checksumCaseExts(yml),
+    attachesChecksums: entries.some((e) => /SHA256SUMS/.test(e)),
+    tagGuardedRelease: /startsWith\(github\.ref,\s*'refs\/tags\//.test(yml),
+  }
+}
+
+/**
+ * Every installer electron-builder produces must actually be attached to the
+ * Release AND hashed into SHA256SUMS.txt, a checksum file must accompany them,
+ * and the whole publish path must be tag-gated. Catches the silent drift where a
+ * new packaging target is added to electron-builder.yml but never wired into the
+ * Release upload globs or the checksum job — so it builds in CI yet reaches a
+ * user unlisted or unverifiable.
+ */
+export function checkReleaseWorkflowContract(
+  builder: BuilderPackaging,
+  uploads: ReleaseWorkflowUploads,
+): string[] {
+  const errors: string[] = []
+  for (const ext of installerExtensions(builder)) {
+    if (!uploads.uploadExts.includes(ext)) {
+      errors.push(
+        `release.yml never uploads dist/*.${ext}, but electron-builder.yml produces a .${ext} installer`,
+      )
+    }
+    if (!uploads.checksumExts.includes(ext)) {
+      errors.push(
+        `release.yml's checksum job never hashes a .${ext} installer, but electron-builder.yml produces one`,
+      )
+    }
+  }
+  if (!uploads.attachesChecksums) {
+    errors.push('release.yml does not attach a SHA256SUMS checksum file to the Release')
+  }
+  if (!uploads.tagGuardedRelease) {
+    errors.push('release.yml must gate Release uploads on a refs/tags/ ref')
+  }
+  return errors
+}
+
+export type ReleaseWorkflowReport = {
+  ok: boolean
+  errors: string[]
+  uploads: ReleaseWorkflowUploads
+  builder: BuilderPackaging
+}
+
+export function checkRepoReleaseWorkflow(repoRoot: string): ReleaseWorkflowReport {
+  const builder = parseBuilderPackaging(
+    readFileSync(join(repoRoot, 'electron-builder.yml'), 'utf8'),
+  )
+  const uploads = parseReleaseWorkflowUploads(
+    readFileSync(join(repoRoot, RELEASE_WORKFLOW_PATH), 'utf8'),
+  )
+  const errors = checkReleaseWorkflowContract(builder, uploads)
+  return { ok: errors.length === 0, errors, uploads, builder }
 }
 
 function topLevelScalar(yml: string, key: string): string {
