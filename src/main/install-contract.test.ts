@@ -7,21 +7,52 @@ import {
   assertTagMatchesPackage,
   builderVar,
   checkInstallContract,
+  checkReleaseWorkflowContract,
   checkRepoInstallContract,
+  checkRepoReleaseWorkflow,
   docArtifactPatterns,
   expectedInstallerFilenames,
   findInventedReleaseClaims,
   GITHUB_REPO,
   INSTALL_DOC_PATHS,
+  installerExtensions,
   interpolateArtifactName,
   loadInstallContractFiles,
   parseBuilderPackaging,
   parsePackageManifest,
+  parseReleaseWorkflowUploads,
+  RELEASE_WORKFLOW_PATH,
   RELEASED_ARTIFACTS,
   tagMatchesPackageVersion,
 } from './install-contract'
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
+
+// A release.yml shaped like the real one: installers attached by `dist/*.<ext>`
+// globs, a checksum file, and the tag guard.
+const MINIMAL_RELEASE_WORKFLOW = `on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  package:
+    steps:
+      - name: Publish installers to GitHub Release (draft)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@abc
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+  checksums:
+    steps:
+      - name: Attach SHA256SUMS.txt to the draft Release
+        uses: softprops/action-gh-release@abc
+        with:
+          files: SHA256SUMS.txt
+`
 
 const MINIMAL_BUILDER = `
 appId: com.termdesk.app
@@ -241,6 +272,83 @@ describe('findInventedReleaseClaims / checkInstallContract', () => {
     const report = checkInstallContract(honestFiles(), ['TermDesk-0.4.0-arm64.dmg'])
     expect(report.ok).toBe(false)
     expect(report.errors.some((e) => e.includes('TermDesk-0.4.0-arm64.dmg'))).toBe(true)
+  })
+})
+
+describe('installerExtensions', () => {
+  it('lists every installer ext electron-builder.yml produces, in order', () => {
+    const builder = parseBuilderPackaging(MINIMAL_BUILDER)
+    expect(installerExtensions(builder)).toEqual(['dmg', 'exe', 'AppImage', 'deb'])
+  })
+})
+
+describe('parseReleaseWorkflowUploads', () => {
+  it('reads the uploaded installer exts, checksum attachment and tag guard', () => {
+    const uploads = parseReleaseWorkflowUploads(MINIMAL_RELEASE_WORKFLOW)
+    expect(uploads.uploadExts).toEqual(['dmg', 'exe', 'AppImage', 'deb'])
+    expect(uploads.attachesChecksums).toBe(true)
+    expect(uploads.tagGuardedRelease).toBe(true)
+  })
+
+  it('reports a missing checksum file and a missing tag guard', () => {
+    const uploads = parseReleaseWorkflowUploads('with:\n  files: |\n    dist/*.dmg\n')
+    expect(uploads.uploadExts).toEqual(['dmg'])
+    expect(uploads.attachesChecksums).toBe(false)
+    expect(uploads.tagGuardedRelease).toBe(false)
+  })
+})
+
+describe('checkReleaseWorkflowContract', () => {
+  const builder = parseBuilderPackaging(MINIMAL_BUILDER)
+
+  it('passes when every installer is uploaded, checksummed and tag-gated', () => {
+    const uploads = parseReleaseWorkflowUploads(MINIMAL_RELEASE_WORKFLOW)
+    expect(checkReleaseWorkflowContract(builder, uploads)).toEqual([])
+  })
+
+  it('flags an installer that electron-builder produces but release.yml never uploads', () => {
+    const missingDeb = MINIMAL_RELEASE_WORKFLOW.replace('            dist/*.deb\n', '')
+    const errors = checkReleaseWorkflowContract(builder, parseReleaseWorkflowUploads(missingDeb))
+    expect(errors).toEqual([
+      'release.yml never uploads dist/*.deb, but electron-builder.yml produces a .deb installer',
+    ])
+  })
+
+  it('flags a release workflow with no checksum file', () => {
+    const noSums = `on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  package:
+    steps:
+      - if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+`
+    const errors = checkReleaseWorkflowContract(builder, parseReleaseWorkflowUploads(noSums))
+    expect(errors).toContain(
+      'release.yml does not attach a SHA256SUMS checksum file to the Release',
+    )
+  })
+})
+
+describe('checkRepoReleaseWorkflow (real checkout)', () => {
+  it('proves release.yml uploads every installer the builder produces, plus checksums', () => {
+    expect(RELEASE_WORKFLOW_PATH).toBe('.github/workflows/release.yml')
+    const report = checkRepoReleaseWorkflow(REPO_ROOT)
+    expect(report.errors, report.errors.join('\n')).toEqual([])
+    expect(report.ok).toBe(true)
+    // Every ext the real electron-builder.yml produces is actually uploaded.
+    for (const ext of installerExtensions(report.builder)) {
+      expect(report.uploads.uploadExts).toContain(ext)
+    }
+    expect(report.uploads.attachesChecksums).toBe(true)
+    expect(report.uploads.tagGuardedRelease).toBe(true)
   })
 })
 

@@ -203,6 +203,77 @@ jobs:
             dist/*.AppImage
             dist/*.deb
 
+  # A download over the public internet needs an integrity anchor: a user who
+  # grabs TermDesk-<ver>.exe from the Releases page has no way to tell a corrupt
+  # or tampered file from a good one. This job runs after all three platform jobs
+  # have attached their installers to the (draft) Release, reads those exact bytes
+  # back, and attaches one SHA256SUMS.txt covering every installer — the file
+  # `sha256sum -c SHA256SUMS.txt` verifies against. Tag-only: a workflow_dispatch
+  # run creates no Release, so there is nothing to checksum.
+  checksums:
+    name: Checksums
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      # Resolve THIS tag's Release — including a draft, which `gh release view`
+      # cannot always address by tag — via the REST API, then stream each
+      # installer asset straight from the API (drafts are not on a public URL).
+      - name: Download installer assets from the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # No --paginate here: a reducing jq (`first`) under --paginate runs
+          # per page and would emit a stray line for every empty page. One
+          # 100-item page covers a fresh repo's release list; `// empty` drops a
+          # no-match to nothing and head -n1 keeps rid a single token.
+          rid="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                   --jq "[.[] | select(.tag_name==\"$GITHUB_REF_NAME\")] | first | .id // empty" \
+                 | head -n1)"
+          if [ -z "$rid" ] || [ "$rid" = "null" ]; then
+            echo "::error::no Release found for tag $GITHUB_REF_NAME"
+            exit 1
+          fi
+          echo "release id: $rid"
+          mkdir -p checksum-work
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$rid/assets" \
+            --jq '.[] | [.id, .name] | @tsv' \
+          | while IFS=$'\t' read -r id name; do
+              case "$name" in
+                *.dmg|*.exe|*.AppImage|*.deb)
+                  echo "downloading $name"
+                  gh api -H 'Accept: application/octet-stream' \
+                    "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "checksum-work/$name" ;;
+              esac
+            done
+          ls -la checksum-work
+
+      # sha256sum's own `-c` format (`<hash>␣␣<name>`), so a user verifies with
+      # `sha256sum -c SHA256SUMS.txt` (or `shasum -a 256 -c` on macOS). Sorted by
+      # filename so the file is stable across runs and easy to eyeball.
+      - name: Compute SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          cd checksum-work
+          if [ -z "$(ls -A)" ]; then
+            echo "::error::no installer assets were downloaded"
+            exit 1
+          fi
+          sha256sum * | sort -k2 > ../SHA256SUMS.txt
+          echo "---- SHA256SUMS.txt ----"
+          cat ../SHA256SUMS.txt
+
+      - name: Attach SHA256SUMS.txt to the draft Release
+        # Pinned to a commit for the same reason the package job pins it: a
+        # contents:write action must not float on a mutable tag.
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
+          files: SHA256SUMS.txt
+
   # Note: installers are attached to the GitHub Release directly by each platform
   # job above (quota-proof, separate storage). On a tag push they land on a DRAFT
   # release — both paths that touch it agree on that: electron-builder is invoked

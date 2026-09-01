@@ -23,6 +23,9 @@ export const GITHUB_REPO = 'konraddzbik/termdesk'
  */
 export const RELEASED_ARTIFACTS: readonly string[] = []
 
+/** Release workflow the packaging contract cross-checks against the builder config. */
+export const RELEASE_WORKFLOW_PATH = '.github/workflows/release.yml'
+
 /** User-facing files the honesty check reads. */
 export const INSTALL_DOC_PATHS = [
   'INSTALL.md',
@@ -314,6 +317,88 @@ export function checkInstallContract(
 
 export function checkRepoInstallContract(repoRoot: string): InstallContractReport {
   return checkInstallContract(loadInstallContractFiles(repoRoot), RELEASED_ARTIFACTS)
+}
+
+/**
+ * The installer file extensions electron-builder.yml actually produces, in a
+ * stable order: macOS `dmg`, Windows `exe`, then each Linux target
+ * (`AppImage`, `deb`). Case is preserved — `AppImage`, not `appimage` — because
+ * that is exactly how the file lands in `dist/` and how release.yml globs it.
+ */
+export function installerExtensions(builder: BuilderPackaging): string[] {
+  return [...new Set(['dmg', builder.win.ext, ...builder.linux.exts])]
+}
+
+export type ReleaseWorkflowUploads = {
+  /** Distinct installer extensions the workflow attaches via `dist/*.<ext>` globs. */
+  uploadExts: string[]
+  /** Whether a SHA256SUMS checksum file is attached to the Release. */
+  attachesChecksums: boolean
+  /** Whether Release uploads are gated on a `refs/tags/` ref. */
+  tagGuardedRelease: boolean
+}
+
+/**
+ * Read what release.yml uploads without a YAML parser: the workflow references
+ * every installer as a `dist/*.<ext>` glob, so the set of those exts is the set
+ * of installers that reach the Release. Also detects the checksum attachment and
+ * the tag guard. Text-level on purpose — it tracks the file the maintainer edits.
+ */
+export function parseReleaseWorkflowUploads(yml: string): ReleaseWorkflowUploads {
+  const uploadExts = [
+    ...new Set([...yml.matchAll(/dist\/\*\.([A-Za-z0-9]+)/g)].map((m) => m[1] as string)),
+  ]
+  return {
+    uploadExts,
+    attachesChecksums: /SHA256SUMS/.test(yml),
+    tagGuardedRelease: /startsWith\(github\.ref,\s*'refs\/tags\//.test(yml),
+  }
+}
+
+/**
+ * Every installer electron-builder produces must actually be attached to the
+ * Release, a checksum file must accompany them, and the whole publish path must
+ * be tag-gated. Catches the silent drift where a new packaging target is added
+ * to electron-builder.yml but never wired into the Release upload globs — so it
+ * builds in CI yet never reaches a single user.
+ */
+export function checkReleaseWorkflowContract(
+  builder: BuilderPackaging,
+  uploads: ReleaseWorkflowUploads,
+): string[] {
+  const errors: string[] = []
+  for (const ext of installerExtensions(builder)) {
+    if (!uploads.uploadExts.includes(ext)) {
+      errors.push(
+        `release.yml never uploads dist/*.${ext}, but electron-builder.yml produces a .${ext} installer`,
+      )
+    }
+  }
+  if (!uploads.attachesChecksums) {
+    errors.push('release.yml does not attach a SHA256SUMS checksum file to the Release')
+  }
+  if (!uploads.tagGuardedRelease) {
+    errors.push('release.yml must gate Release uploads on a refs/tags/ ref')
+  }
+  return errors
+}
+
+export type ReleaseWorkflowReport = {
+  ok: boolean
+  errors: string[]
+  uploads: ReleaseWorkflowUploads
+  builder: BuilderPackaging
+}
+
+export function checkRepoReleaseWorkflow(repoRoot: string): ReleaseWorkflowReport {
+  const builder = parseBuilderPackaging(
+    readFileSync(join(repoRoot, 'electron-builder.yml'), 'utf8'),
+  )
+  const uploads = parseReleaseWorkflowUploads(
+    readFileSync(join(repoRoot, RELEASE_WORKFLOW_PATH), 'utf8'),
+  )
+  const errors = checkReleaseWorkflowContract(builder, uploads)
+  return { ok: errors.length === 0, errors, uploads, builder }
 }
 
 function topLevelScalar(yml: string, key: string): string {
