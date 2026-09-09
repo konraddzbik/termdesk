@@ -290,8 +290,13 @@ export function authMethodInfo(kind: AuthMethodKind): AuthMethodInfo {
   }
 }
 
-/** `sk-*` OpenSSH key types are hardware-backed FIDO2 credentials (#86/#87). */
+/**
+ * FIDO2 hardware-key OpenSSH key types (#86/#87). Real OpenSSH security-key
+ * types are `sk-ssh-ed25519@openssh.com` and `sk-ecdsa-sha2-nistp256@openssh.com`
+ * (the `webauthn-sk-*` variant is used for web-origin credentials) — all of which
+ * carry the `sk-` marker, so we match that rather than speculative suffixes.
+ */
 export function isSecurityKeyType(keyType: string): boolean {
   const t = keyType.trim().toLowerCase()
-  return t.startsWith('sk-') || t.endsWith('-sk') || t.endsWith('-sk@openssh.com')
+  return t.startsWith('sk-') || t.startsWith('webauthn-sk-')
 }

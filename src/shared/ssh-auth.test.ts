@@ -79,6 +79,12 @@ describe('certValidityState (#88)', () => {
     expect(certValidityState({}, { now })).toBe('valid')
     expect(certSecondsRemaining({}, now)).toBe(Number.POSITIVE_INFINITY)
   })
+  it('resolves a malformed cert (validAfter > validBefore) to not-yet-valid, never valid', () => {
+    // A contradictory window can never be usable; not-yet-valid keeps us fail-safe.
+    expect(certValidityState({ validAfter: now + 100, validBefore: now - 100 }, { now })).toBe(
+      'not-yet-valid',
+    )
+  })
 })
 
 describe('describeCertValidity (#88)', () => {
@@ -128,6 +134,7 @@ describe('isSecurityKeyType (#86)', () => {
   it('detects the sk-* OpenSSH FIDO2 key types', () => {
     expect(isSecurityKeyType('sk-ssh-ed25519@openssh.com')).toBe(true)
     expect(isSecurityKeyType('sk-ecdsa-sha2-nistp256@openssh.com')).toBe(true)
+    expect(isSecurityKeyType('webauthn-sk-ecdsa-sha2-nistp256@openssh.com')).toBe(true)
     expect(isSecurityKeyType('ssh-ed25519')).toBe(false)
     expect(isSecurityKeyType('ssh-rsa')).toBe(false)
   })
