@@ -53,9 +53,28 @@ describe('detectPreview (#97)', () => {
     const csv = 'name,age,city\nalice,30,paris\nbob,25,rome'
     expect(detectPreview(csv)).toEqual({ kind: 'table', delimiter: ',', columns: 3, rows: 3 })
   })
-  it('detects a TSV table', () => {
+  it('detects a TSV table (a single tab per line is enough)', () => {
     const tsv = 'a\tb\nc\td\ne\tf'
     expect(detectPreview(tsv)).toEqual({ kind: 'table', delimiter: '\t', columns: 2, rows: 3 })
+  })
+  it('does not sniff ordinary prose with one comma per line as a table', () => {
+    // A comma table needs >= 3 columns; single-comma prose stays text.
+    expect(detectPreview('Hello, world\nGoodbye, moon').kind).toBe('text')
+  })
+  it('validates delimiter consistency over the same lines it counts as rows', () => {
+    // First two lines are clean 3-col CSV, third is prose → not a table.
+    expect(detectPreview('a,b,c\nd,e,f\nnow some prose here').kind).toBe('text')
+    // A clean 3-col CSV reports rows over exactly the validated lines.
+    expect(detectPreview('a,b,c\nd,e,f\ng,h,i')).toEqual({
+      kind: 'table',
+      delimiter: ',',
+      columns: 3,
+      rows: 3,
+    })
+  })
+  it('does not treat a non-image base64 blob (short magic) as an image', () => {
+    // "Qk" (BMP) is intentionally not a signature — would false-positive.
+    expect(detectPreview('QkFBQUFBQUFBQUFBQUFBQUFBQUFBQUFB').kind).not.toBe('image')
   })
   it('falls back to text for prose and single lines', () => {
     expect(detectPreview('just some log output here')).toEqual({ kind: 'text' })

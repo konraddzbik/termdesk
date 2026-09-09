@@ -135,18 +135,24 @@ export type Preview =
   | { kind: 'text' }
 
 export interface PreviewOptions {
-  /** Lines to sample when sniffing a delimited table (default 20). */
+  /**
+   * Max lines to consider when sniffing a delimited table. Delimiter
+   * consistency is validated over exactly these lines, and `rows` reports their
+   * count — so validation and the reported row count never disagree. Default 1000.
+   */
   sampleLines?: number
 }
 
 // Base64 signatures for the common image formats (first bytes of the file).
+// Best-effort: each is long enough that a random base64 blob is unlikely to
+// collide. Very short magic (e.g. BMP's 2-char "Qk") is intentionally omitted —
+// it false-positives on arbitrary text and this is only a cosmetic preview hint.
 const IMAGE_B64_SIGNATURES: Array<[string, string]> = [
   ['iVBORw0KGgo', 'png'],
-  ['/9j/', 'jpeg'],
+  ['/9j/4', 'jpeg'], // JFIF/EXIF JPEG (FF D8 FF E?) — 5 chars to avoid bare "/9j/" collisions
   ['R0lGOD', 'gif'],
   ['UklGR', 'webp'], // RIFF container
   ['PHN2Zw', 'svg'], // "<svg"
-  ['Qk', 'bmp'],
 ]
 
 function detectImage(content: string): Preview | null {
@@ -176,15 +182,22 @@ function detectJson(content: string): Preview | null {
   return null
 }
 
-function detectTable(content: string, sampleLines: number): Preview | null {
+function detectTable(content: string, maxLines: number): Preview | null {
+  // Consider (and bound) all non-empty lines, then validate delimiter
+  // consistency over the *same* set we report `rows` for — so a file that is
+  // clean CSV for its first N lines and prose afterwards is not mislabeled.
   const lines = content.split(/\r?\n/).filter((l) => l.trim() !== '')
   if (lines.length < 2) return null
-  const sample = lines.slice(0, sampleLines)
+  const considered = lines.slice(0, maxLines)
   for (const delimiter of [',', '\t'] as const) {
-    const counts = sample.map((l) => l.split(delimiter).length - 1)
+    const counts = considered.map((l) => l.split(delimiter).length - 1)
     const first = counts[0]
-    if (first !== undefined && first >= 1 && counts.every((c) => c === first)) {
-      return { kind: 'table', delimiter, columns: first + 1, rows: lines.length }
+    // A comma table must have >= 2 delimiters (>= 3 columns) so ordinary prose
+    // with a single comma per line ("Hello, world") is not sniffed as CSV; a tab
+    // is a strong tabular signal on its own (>= 2 columns).
+    const minDelimiters = delimiter === ',' ? 2 : 1
+    if (first !== undefined && first >= minDelimiters && counts.every((c) => c === first)) {
+      return { kind: 'table', delimiter, columns: first + 1, rows: considered.length }
     }
   }
   return null
@@ -201,6 +214,6 @@ export function detectPreview(content: string, opts: PreviewOptions = {}): Previ
   return (
     detectImage(content) ??
     detectJson(content) ??
-    detectTable(content, opts.sampleLines ?? 20) ?? { kind: 'text' }
+    detectTable(content, opts.sampleLines ?? 1000) ?? { kind: 'text' }
   )
 }
