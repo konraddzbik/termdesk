@@ -54,6 +54,11 @@ describe('detectSyncConflict (#99)', () => {
   it('is diverged when both advanced since the last sync (conflict)', () => {
     expect(detectSyncConflict(meta(6), meta(7, 'dev-b'), 4)).toBe('diverged')
   })
+  it('treats a stale/ahead lastSyncedRevision as nothing-new (in-sync)', () => {
+    // A baseline at or beyond both revisions means neither side is "ahead" of it.
+    expect(detectSyncConflict(meta(4), meta(4, 'dev-b'), 10)).toBe('in-sync')
+    expect(detectSyncConflict(meta(4), meta(6, 'dev-b'), 6)).toBe('in-sync')
+  })
 })
 
 describe('resolveSync (#99)', () => {
