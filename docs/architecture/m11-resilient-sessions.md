@@ -16,7 +16,7 @@ Sessions that survive IP roaming, laptop-sleep and flaky Wi-Fi are strongly prai
 
 ## #93 — Self-healing tunnels (reuses this core)
 
-The tunnel manager (`src/main/store/tunnels-repo.ts`, `-L`/`-D`) already has a live status dot; today a dropped upstream SSH connection silently kills the forward. Feed the same `reduceReconnect` machine per tunnel: on drop, re-establish the forward when connectivity returns, mapping `connected/reconnecting/failed` onto the existing status dot. Local listeners are held (or cleanly re-bound) so client apps pointed at the forward need not restart where feasible.
+The tunnel manager (`src/main/ssh/tunnel-manager.ts`, `-L`/`-D`; tunnels persisted by `src/main/store/tunnels-repo.ts`) already has a live status dot; today a dropped upstream SSH connection silently kills the forward. Feed the same `reduceReconnect` machine per tunnel: on drop, re-establish the forward when connectivity returns, mapping `connected/reconnecting/failed` onto the existing status dot. Local listeners are held (or cleanly re-bound) so client apps pointed at the forward need not restart where feasible.
 
 ## #94 — Resumable SFTP (reuses this core)
 

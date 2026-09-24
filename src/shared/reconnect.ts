@@ -12,6 +12,11 @@
  *
  * The same machine is shared across features: a terminal session, a `-L`/`-D`
  * tunnel, and an in-flight SFTP transfer all reconnect with identical semantics.
+ *
+ * Events carry no attempt ID, so the machine cannot tell a late `success` or
+ * `attempt-failed` from an abandoned dial apart from a current one. The transport
+ * must cancel any in-flight dial before dispatching `give-up` (or `manual-retry`),
+ * otherwise a stale `success` would revive a session the user stopped.
  */
 
 export type ReconnectStatus = 'connected' | 'reconnecting' | 'failed'
@@ -39,7 +44,8 @@ export interface ReconnectOptions {
   /** Delay ceiling, ms. Default 30_000. */
   maxDelayMs?: number
   /**
-   * Max attempts before giving up (entering `failed`). Default `Infinity` —
+   * Max reconnect attempts before giving up (entering `failed`): `maxRetries: N`
+   * dials exactly N times; `0` fails on drop without dialing. Default `Infinity` —
    * keep trying until the user gives up or connectivity returns.
    */
   maxRetries?: number
@@ -53,12 +59,18 @@ interface ResolvedOptions {
 }
 
 function resolve(opts: ReconnectOptions): ResolvedOptions {
-  return {
+  const o = {
     baseDelayMs: opts.baseDelayMs ?? 1000,
     factor: opts.factor ?? 2,
     maxDelayMs: opts.maxDelayMs ?? 30_000,
     maxRetries: opts.maxRetries ?? Number.POSITIVE_INFINITY,
   }
+  // `!(x >= 0)` also rejects NaN.
+  if (!(o.baseDelayMs >= 0)) throw new RangeError(`baseDelayMs must be >= 0, got ${o.baseDelayMs}`)
+  if (!(o.maxDelayMs >= 0)) throw new RangeError(`maxDelayMs must be >= 0, got ${o.maxDelayMs}`)
+  if (!(o.factor >= 1)) throw new RangeError(`factor must be >= 1, got ${o.factor}`)
+  if (!(o.maxRetries >= 0)) throw new RangeError(`maxRetries must be >= 0, got ${o.maxRetries}`)
+  return o
 }
 
 /**
@@ -78,9 +90,9 @@ export function initialReconnectState(): ReconnectState {
   return { status: 'connected', attempt: 0, nextDelayMs: 0 }
 }
 
-/** True when `attempt` has reached the retry ceiling and the session should fail. */
+/** True when dialing `attempt` (1-based) would exceed the retry ceiling. */
 export function shouldGiveUp(attempt: number, maxRetries: number): boolean {
-  return attempt >= maxRetries
+  return attempt > maxRetries
 }
 
 /**
@@ -91,7 +103,8 @@ export function shouldGiveUp(attempt: number, maxRetries: number): boolean {
  *  - `connected` + `drop` → `reconnecting` (attempt 1, delay = backoff(1))
  *  - `reconnecting` + `success` → `connected`
  *  - `reconnecting` + `attempt-failed` → next attempt, or `failed` at the ceiling
- *  - any + `manual-retry` → `reconnecting` (attempt 1) — revives a `failed` session
+ *  - `reconnecting`/`failed` + `manual-retry` → `reconnecting` (attempt 1, no delay)
+ *    — revives a `failed` session; a no-op while `connected`
  *  - any + `give-up` → `failed`
  *  - `success` while `connected` is idempotent
  */
@@ -106,7 +119,9 @@ export function reduceReconnect(
       return { status: 'failed', attempt: state.attempt, nextDelayMs: 0 }
 
     case 'manual-retry':
-      return { status: 'reconnecting', attempt: 1, nextDelayMs: nextBackoff(1, o) }
+      // A healthy link must not be re-dialed; "retry now" means now.
+      if (state.status === 'connected') return state
+      return { status: 'reconnecting', attempt: 1, nextDelayMs: 0 }
 
     case 'success':
       return { status: 'connected', attempt: 0, nextDelayMs: 0 }
@@ -115,7 +130,7 @@ export function reduceReconnect(
       // Ignore a redundant drop while already reconnecting/failed.
       if (state.status !== 'connected') return state
       if (shouldGiveUp(1, o.maxRetries)) {
-        return { status: 'failed', attempt: 1, nextDelayMs: 0 }
+        return { status: 'failed', attempt: 0, nextDelayMs: 0 }
       }
       return { status: 'reconnecting', attempt: 1, nextDelayMs: nextBackoff(1, o) }
     }
@@ -129,8 +144,10 @@ export function reduceReconnect(
       return { status: 'reconnecting', attempt: next, nextDelayMs: nextBackoff(next, o) }
     }
 
-    default:
-      return state
+    default: {
+      const unhandled: never = event
+      return unhandled
+    }
   }
 }
 

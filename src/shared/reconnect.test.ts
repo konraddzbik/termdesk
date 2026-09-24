@@ -27,8 +27,9 @@ describe('nextBackoff', () => {
 
 describe('shouldGiveUp', () => {
   it('trips at the retry ceiling', () => {
-    expect(shouldGiveUp(2, 3)).toBe(false)
-    expect(shouldGiveUp(3, 3)).toBe(true)
+    expect(shouldGiveUp(3, 3)).toBe(false)
+    expect(shouldGiveUp(4, 3)).toBe(true)
+    expect(shouldGiveUp(1, 0)).toBe(true)
     expect(shouldGiveUp(1, Number.POSITIVE_INFINITY)).toBe(false)
   })
 })
@@ -57,25 +58,47 @@ describe('reduceReconnect', () => {
     expect(s).toEqual({ status: 'connected', attempt: 0, nextDelayMs: 0 })
   })
 
-  it('gives up at maxRetries', () => {
+  it('dials exactly maxRetries times before giving up', () => {
     const limited = { ...opts, maxRetries: 3 }
-    let s = reduceReconnect(initialReconnectState(), { type: 'drop' }, limited) // attempt 1
-    s = reduceReconnect(s, { type: 'attempt-failed' }, limited) // attempt 2
-    expect(s.status).toBe('reconnecting')
-    s = reduceReconnect(s, { type: 'attempt-failed' }, limited) // would be attempt 3 → ceiling
-    expect(s.status).toBe('failed')
+    let s = reduceReconnect(initialReconnectState(), { type: 'drop' }, limited)
+    expect(s).toEqual({ status: 'reconnecting', attempt: 1, nextDelayMs: 1000 })
+    s = reduceReconnect(s, { type: 'attempt-failed' }, limited)
+    expect(s).toEqual({ status: 'reconnecting', attempt: 2, nextDelayMs: 2000 })
+    s = reduceReconnect(s, { type: 'attempt-failed' }, limited)
+    expect(s).toEqual({ status: 'reconnecting', attempt: 3, nextDelayMs: 4000 })
+    s = reduceReconnect(s, { type: 'attempt-failed' }, limited) // attempt 3 failed → ceiling
+    expect(s).toEqual({ status: 'failed', attempt: 3, nextDelayMs: 0 })
     expect(isRetrying(s)).toBe(false)
   })
 
-  it('fails immediately on drop when maxRetries is 1', () => {
-    const s = reduceReconnect(initialReconnectState(), { type: 'drop' }, { ...opts, maxRetries: 1 })
-    expect(s.status).toBe('failed')
+  it('makes exactly one attempt when maxRetries is 1', () => {
+    const one = { ...opts, maxRetries: 1 }
+    let s = reduceReconnect(initialReconnectState(), { type: 'drop' }, one)
+    expect(s).toEqual({ status: 'reconnecting', attempt: 1, nextDelayMs: 1000 })
+    s = reduceReconnect(s, { type: 'attempt-failed' }, one)
+    expect(s).toEqual({ status: 'failed', attempt: 1, nextDelayMs: 0 })
+  })
+
+  it('fails on drop without dialing when maxRetries is 0', () => {
+    const s = reduceReconnect(initialReconnectState(), { type: 'drop' }, { ...opts, maxRetries: 0 })
+    expect(s).toEqual({ status: 'failed', attempt: 0, nextDelayMs: 0 })
   })
 
   it('revives a failed session on manual-retry', () => {
     const failed: ReconnectState = { status: 'failed', attempt: 5, nextDelayMs: 0 }
     const s = reduceReconnect(failed, { type: 'manual-retry' }, opts)
-    expect(s).toEqual({ status: 'reconnecting', attempt: 1, nextDelayMs: 1000 })
+    expect(s).toEqual({ status: 'reconnecting', attempt: 1, nextDelayMs: 0 })
+  })
+
+  it('manual-retry restarts the attempt counter with no delay while reconnecting', () => {
+    const reconnecting: ReconnectState = { status: 'reconnecting', attempt: 4, nextDelayMs: 8000 }
+    const s = reduceReconnect(reconnecting, { type: 'manual-retry' }, opts)
+    expect(s).toEqual({ status: 'reconnecting', attempt: 1, nextDelayMs: 0 })
+  })
+
+  it('manual-retry is a no-op while connected', () => {
+    const s0 = initialReconnectState()
+    expect(reduceReconnect(s0, { type: 'manual-retry' }, opts)).toBe(s0)
   })
 
   it('give-up forces failed from any state', () => {
@@ -105,5 +128,26 @@ describe('describeReconnect', () => {
     expect(describeReconnect({ status: 'reconnecting', attempt: 4, nextDelayMs: 8000 })).toBe(
       'Reconnecting… (attempt 4)',
     )
+  })
+})
+
+describe('option validation', () => {
+  const s0 = initialReconnectState()
+  const drop = { type: 'drop' } as const
+  it.each([
+    { baseDelayMs: -1 },
+    { maxDelayMs: -1 },
+    { factor: 0.5 },
+    { maxRetries: -1 },
+    { maxRetries: Number.NaN },
+    { baseDelayMs: Number.NaN },
+  ])('rejects %o', (bad) => {
+    expect(() => reduceReconnect(s0, drop, bad)).toThrow(RangeError)
+    expect(() => nextBackoff(1, bad)).toThrow(RangeError)
+  })
+  it('accepts boundary values', () => {
+    expect(() =>
+      reduceReconnect(s0, drop, { baseDelayMs: 0, factor: 1, maxRetries: 0 }),
+    ).not.toThrow()
   })
 })
