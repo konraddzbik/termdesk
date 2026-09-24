@@ -42,6 +42,18 @@ reporting (see [`SECURITY.md`](../SECURITY.md)).
   tokens, so port 5900 is not exposed on the default path. (A `direct` VNC mode
   is available for VNC-only hosts that opt into it.)
 
+### SSH agent forwarding
+
+Forwarding your SSH agent to a host lets anyone with root on that host use
+your agent, for as long as the session lasts, to authenticate as you to any
+other host your keys can reach ("agent hijacking"). The keys themselves never
+leave your machine, but they can still be *used* remotely. ProxyJump avoids
+this entirely: the jump host only relays an encrypted stream and never sees an
+agent socket. TermDesk's M10 core (`agentForwardingAdvice` in
+`src/shared/ssh-auth.ts`) classifies forwarding-without-ProxyJump as a warning;
+wiring that advice into the host editor and session panel (default off, warn on
+enable, key timeout / agent lock) is tracked in #90.
+
 ## How TermDesk contrasts with the field
 
 | Concern | Common incumbent behavior | TermDesk |
