@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_TOOLS, agentTool, detectPreview, requiresApproval } from './agent-tools'
+import {
+  AGENT_TOOLS,
+  agentTool,
+  detectPreview,
+  gateAgentCall,
+  requiresApproval,
+} from './agent-tools'
 
 describe('agent tool registry (#95)', () => {
   it('marks every mutating tool as approval-required', () => {
@@ -15,6 +21,14 @@ describe('agent tool registry (#95)', () => {
     expect(agentTool('session.run')?.mutating).toBe(true)
     expect(agentTool('nope')).toBeUndefined()
   })
+  it('is frozen so runtime mutation cannot relax the policy', () => {
+    expect(Object.isFrozen(AGENT_TOOLS)).toBe(true)
+    const run = agentTool('session.run') as { mutating: boolean }
+    expect(() => {
+      run.mutating = false
+    }).toThrow(TypeError)
+    expect(requiresApproval('session.run', { autoApproveReads: true })).toBe(true)
+  })
 })
 
 describe('requiresApproval (#95)', () => {
@@ -29,6 +43,42 @@ describe('requiresApproval (#95)', () => {
   })
   it('fails closed on an unknown tool', () => {
     expect(requiresApproval('rm.-rf', { autoApproveReads: true })).toBe(true)
+  })
+  it('matches names exactly, so a mixed-case name fails closed', () => {
+    expect(agentTool('Session.Read')).toBeUndefined()
+    expect(requiresApproval('Session.Read', { autoApproveReads: true })).toBe(true)
+  })
+  it('honours a descriptor requiresApproval flag even for a non-mutating tool', () => {
+    // Rule pinned over the whole registry: autoApproveReads only lifts tools
+    // that are neither mutating nor explicitly flagged.
+    for (const t of AGENT_TOOLS) {
+      expect(requiresApproval(t.name, { autoApproveReads: true })).toBe(
+        t.mutating || t.requiresApproval,
+      )
+    }
+  })
+})
+
+describe('gateAgentCall — layered on decide() (#95)', () => {
+  it('never lifts a deny from the host-scoped policy', () => {
+    expect(gateAgentCall('deny', 'session.read', { autoApproveReads: true })).toBe('deny')
+    expect(gateAgentCall('deny', 'session.run')).toBe('deny')
+  })
+  it('keeps needs-approval', () => {
+    expect(gateAgentCall('needs-approval', 'session.read', { autoApproveReads: true })).toBe(
+      'needs-approval',
+    )
+  })
+  it('downgrades an allowlist auto-allow to a prompt for mutating tools', () => {
+    expect(gateAgentCall('allow', 'session.run')).toBe('needs-approval')
+    expect(gateAgentCall('allow', 'fleet.run', { autoApproveReads: true })).toBe('needs-approval')
+  })
+  it('lets a read through only when decide() allowed it AND the user opted in', () => {
+    expect(gateAgentCall('allow', 'session.read')).toBe('needs-approval')
+    expect(gateAgentCall('allow', 'session.read', { autoApproveReads: true })).toBe('allow')
+  })
+  it('fails closed on unknown tools even when decide() allowed', () => {
+    expect(gateAgentCall('allow', 'nope', { autoApproveReads: true })).toBe('needs-approval')
   })
 })
 
@@ -82,5 +132,32 @@ describe('detectPreview (#97)', () => {
     expect(detectPreview('')).toEqual({ kind: 'text' })
     // Inconsistent delimiter counts are not a table.
     expect(detectPreview('a,b,c\nd,e').kind).toBe('text')
+  })
+  it('reports rows over exactly sampleLines lines', () => {
+    const csv = 'a,b,c\nd,e,f\ng,h,i\nj,k,l'
+    expect(detectPreview(csv, { sampleLines: 2 })).toEqual({
+      kind: 'table',
+      delimiter: ',',
+      columns: 3,
+      rows: 2,
+    })
+    // Lines past the sample are not validated, so trailing prose is tolerated.
+    expect(detectPreview('a,b,c\nd,e,f\nprose', { sampleLines: 2 }).kind).toBe('table')
+  })
+  it('bounds input: truncated JSON is not parsed, a cut-off table line is dropped', () => {
+    const json = JSON.stringify(Array.from({ length: 100 }, (_, i) => ({ i })))
+    expect(detectPreview(json, { maxChars: 50 }).kind).toBe('text')
+    const csv = Array.from({ length: 50 }, (_, i) => `${i},x,y`).join('\n')
+    const p = detectPreview(csv, { maxChars: 30 })
+    expect(p.kind).toBe('table')
+  })
+  it('only labels a RIFF container as webp when it carries the WEBP tag', () => {
+    // "RIFF" + size + "WEBPVP8 ..." vs "RIFF" + size + "WAVEfmt ..."
+    expect(detectPreview('UklGRiQAAABXRUJQVlA4IGFiY2RlZmdoaWo=')).toEqual({
+      kind: 'image',
+      format: 'webp',
+      dataUri: false,
+    })
+    expect(detectPreview('UklGRiQAAABXQVZFZm10IGFiY2RlZmdoaWo=').kind).not.toBe('image')
   })
 })

@@ -22,6 +22,8 @@
  * policy and the renderer draws the previews.
  */
 
+import type { AiVerdict } from './ipc'
+
 // ---------------------------------------------------------------------------
 // #95 — Agent tool registry + approval policy
 // ---------------------------------------------------------------------------
@@ -55,7 +57,7 @@ export interface AgentToolDescriptor {
  * everything that runs a command, moves a file, or opens/closes a tunnel is
  * approval-gated by default.
  */
-export const AGENT_TOOLS: readonly AgentToolDescriptor[] = [
+export const AGENT_TOOLS: readonly Readonly<AgentToolDescriptor>[] = freezeTools([
   {
     name: 'session.open',
     title: 'Open or attach a session',
@@ -94,7 +96,13 @@ export const AGENT_TOOLS: readonly AgentToolDescriptor[] = [
     mutating: true,
     requiresApproval: true,
   },
-] as const
+])
+
+// Frozen (array AND each entry) so runtime code can't flip `mutating` /
+// `requiresApproval` and silently change the policy — `readonly` is type-only.
+function freezeTools(tools: AgentToolDescriptor[]): readonly Readonly<AgentToolDescriptor>[] {
+  return Object.freeze(tools.map((t) => Object.freeze(t)))
+}
 
 const TOOL_BY_NAME = new Map(AGENT_TOOLS.map((t) => [t.name, t]))
 
@@ -115,13 +123,39 @@ export interface ApprovalPolicyOptions {
  * Whether a tool call must be approved by the user before it runs. An unknown
  * tool is treated as requiring approval (fail-closed). Mutating tools always
  * require approval; a read-only tool requires approval unless the user opted
- * into auto-approving reads.
+ * into auto-approving reads. Tool names match exactly (case-sensitive), so
+ * `Session.Read` is unknown and fails closed.
+ *
+ * This is an ADDITIONAL gate layered on top of the shipped MCP policy
+ * (`decide()` in `src/main/mcp/policy.ts`), never a replacement: it takes no
+ * host, so it cannot grant host access. Combine the two with `gateAgentCall`.
  */
 export function requiresApproval(name: string, opts: ApprovalPolicyOptions = {}): boolean {
   const tool = agentTool(name)
   if (!tool) return true // fail-closed on unknown tools
   if (tool.mutating || tool.requiresApproval) return true
   return !opts.autoApproveReads
+}
+
+/**
+ * Combine the host-scoped `decide()` verdict with this registry's gate. The
+ * stricter answer always wins:
+ *  - `deny` from `decide()` (host not in the read/exec allow-set, deny-list hit)
+ *    is final — nothing here can lift it.
+ *  - `needs-approval` from `decide()` stays `needs-approval`.
+ *  - `allow` from `decide()` (read-enabled host, or an allowlist-mode pattern
+ *    match) is downgraded to `needs-approval` when `requiresApproval` says so.
+ *    So an allowlist match does NOT auto-run a mutating agent tool, and
+ *    `autoApproveReads` only skips the prompt on a host `decide()` already
+ *    read-enabled.
+ */
+export function gateAgentCall(
+  policyVerdict: AiVerdict,
+  name: string,
+  opts: ApprovalPolicyOptions = {},
+): AiVerdict {
+  if (policyVerdict !== 'allow') return policyVerdict
+  return requiresApproval(name, opts) ? 'needs-approval' : 'allow'
 }
 
 // ---------------------------------------------------------------------------
@@ -141,19 +175,30 @@ export interface PreviewOptions {
    * count — so validation and the reported row count never disagree. Default 1000.
    */
   sampleLines?: number
+  /**
+   * Max characters of `content` inspected at all. Longer input is cut to this
+   * prefix before any split / regex, and is never JSON-parsed (a truncated
+   * document can't be valid JSON), so multi-MB output stays cheap. Default 256 KiB.
+   */
+  maxChars?: number
 }
 
 // Base64 signatures for the common image formats (first bytes of the file).
 // Best-effort: each is long enough that a random base64 blob is unlikely to
 // collide. Very short magic (e.g. BMP's 2-char "Qk") is intentionally omitted —
 // it false-positives on arbitrary text and this is only a cosmetic preview hint.
+// SVG is script-capable markup: the renderer must draw an `svg` preview via
+// `<img>` (which never runs script), never inline it into the DOM.
 const IMAGE_B64_SIGNATURES: Array<[string, string]> = [
   ['iVBORw0KGgo', 'png'],
   ['/9j/4', 'jpeg'], // JFIF/EXIF JPEG (FF D8 FF E?) — 5 chars to avoid bare "/9j/" collisions
   ['R0lGOD', 'gif'],
-  ['UklGR', 'webp'], // RIFF container
+  ['UklGR', 'webp'], // RIFF container — also WAV/AVI, so the WEBP tag is checked below
   ['PHN2Zw', 'svg'], // "<svg"
 ]
+
+// "RIFF" + 4-byte size + "WEBP": base64 chars 12–15 encode bytes 9–11 ("EBP").
+const WEBP_TAG_B64 = 'RUJQ'
 
 function detectImage(content: string): Preview | null {
   const trimmed = content.trim()
@@ -163,13 +208,16 @@ function detectImage(content: string): Preview | null {
   if (/^[A-Za-z0-9+/=\r\n]+$/.test(trimmed) && trimmed.length >= 24) {
     const head = trimmed.replace(/\s+/g, '').slice(0, 16)
     for (const [sig, format] of IMAGE_B64_SIGNATURES) {
-      if (head.startsWith(sig)) return { kind: 'image', format, dataUri: false }
+      if (!head.startsWith(sig)) continue
+      if (format === 'webp' && head.slice(12, 16) !== WEBP_TAG_B64) continue
+      return { kind: 'image', format, dataUri: false }
     }
   }
   return null
 }
 
-function detectJson(content: string): Preview | null {
+function detectJson(content: string, truncated: boolean): Preview | null {
+  if (truncated) return null
   const trimmed = content.trim()
   if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return null
   try {
@@ -182,11 +230,14 @@ function detectJson(content: string): Preview | null {
   return null
 }
 
-function detectTable(content: string, maxLines: number): Preview | null {
+function detectTable(content: string, maxLines: number, truncated: boolean): Preview | null {
   // Consider (and bound) all non-empty lines, then validate delimiter
   // consistency over the *same* set we report `rows` for — so a file that is
   // clean CSV for its first N lines and prose afterwards is not mislabeled.
-  const lines = content.split(/\r?\n/).filter((l) => l.trim() !== '')
+  const all = content.split(/\r?\n/)
+  // A cut-off last line would have a short delimiter count — drop it.
+  if (truncated) all.pop()
+  const lines = all.filter((l) => l.trim() !== '')
   if (lines.length < 2) return null
   const considered = lines.slice(0, maxLines)
   for (const delimiter of [',', '\t'] as const) {
@@ -210,10 +261,13 @@ function detectTable(content: string, maxLines: number): Preview | null {
  * unrecognized content falls back to `text`.
  */
 export function detectPreview(content: string, opts: PreviewOptions = {}): Preview {
-  if (content.trim() === '') return { kind: 'text' }
+  const maxChars = opts.maxChars ?? 256 * 1024
+  const truncated = content.length > maxChars
+  const sample = truncated ? content.slice(0, maxChars) : content
+  if (sample.trim() === '') return { kind: 'text' }
   return (
-    detectImage(content) ??
-    detectJson(content) ??
-    detectTable(content, opts.sampleLines ?? 1000) ?? { kind: 'text' }
+    detectImage(sample) ??
+    detectJson(sample, truncated) ??
+    detectTable(sample, opts.sampleLines ?? 1000, truncated) ?? { kind: 'text' }
   )
 }
