@@ -17,7 +17,10 @@
  * wraps the same secret-stripped envelope.
  */
 
-/** Bump when the on-disk sync shape changes incompatibly. A client refuses a newer major. */
+/**
+ * Bump when the on-disk sync shape changes incompatibly. A single positive
+ * integer (no major/minor split); a client refuses any version newer than its own.
+ */
 export const SYNC_CONTRACT_VERSION = 1
 
 export interface SyncMeta {
@@ -58,32 +61,93 @@ export function makeSyncMeta(
 
 /**
  * Whether this build can read an envelope written with `contractVersion`.
- * Same major (here: any version `<=` ours) is readable; a newer version is
- * refused so an old client never corrupts data it doesn't understand.
+ * Any positive integer version `<=` ours is readable; a newer version is refused
+ * so an old client never corrupts data it doesn't understand, and a malformed
+ * one (0, negative, fractional, NaN) is refused outright.
  */
 export function isCompatibleContract(contractVersion: number): boolean {
-  return contractVersion <= SYNC_CONTRACT_VERSION
+  return (
+    Number.isInteger(contractVersion) &&
+    contractVersion >= 1 &&
+    contractVersion <= SYNC_CONTRACT_VERSION
+  )
+}
+
+/**
+ * Structural check for a meta read from user-supplied storage, which may be
+ * truncated, hand-edited or written by a buggy client. Anything that fails this
+ * is never treated as "unchanged" — `detectSyncConflict` reports it as a conflict.
+ */
+export function isValidSyncMeta(value: unknown): value is SyncMeta {
+  if (typeof value !== 'object' || value === null) return false
+  const m = value as Record<string, unknown>
+  return (
+    typeof m.contractVersion === 'number' &&
+    Number.isInteger(m.contractVersion) &&
+    m.contractVersion >= 1 &&
+    typeof m.revision === 'number' &&
+    Number.isSafeInteger(m.revision) &&
+    m.revision >= 0 &&
+    typeof m.deviceId === 'string' &&
+    m.deviceId.length > 0 &&
+    typeof m.updatedAt === 'number' &&
+    Number.isFinite(m.updatedAt)
+  )
+}
+
+/**
+ * What the client remembers about the remote at the last successful sync
+ * (persisted per remote). The device id is what tells a *replaced* remote — same
+ * revision number, different lineage — apart from an unchanged one.
+ */
+export interface SyncBaseline {
+  revision: number
+  deviceId: string
+}
+
+/** The baseline to persist after successfully pushing or pulling `meta`. */
+export function syncBaselineOf(meta: SyncMeta): SyncBaseline {
+  return { revision: meta.revision, deviceId: meta.deviceId }
 }
 
 export type SyncComparison = 'in-sync' | 'local-ahead' | 'remote-ahead' | 'diverged'
 
 /**
- * Three-way conflict detection. `lastSyncedRevision` is the revision at the last
- * successful sync (tracked per remote by the client); a side is "changed" if its
- * current revision is ahead of it.
+ * Three-way conflict detection against the `baseline` recorded at the last
+ * successful sync. A side is "changed" if its revision is ahead of the baseline.
  *
  *  - neither changed      → `in-sync`
- *  - only local changed   → `local-ahead`  (safe to push)
+ *  - only local changed   → `local-ahead`  (safe to push — as a conditional write)
  *  - only remote changed  → `remote-ahead` (safe to pull)
  *  - both changed         → `diverged`     (conflict — never silently overwrite)
+ *
+ * The remote is also `diverged` — never "unchanged" — when it can't be the
+ * lineage we last synced with: its revision is *below* the baseline (rolled back,
+ * restored from backup, re-created by a fresh install), it has the baseline's
+ * revision but a different device id (replaced, or two devices raced to the same
+ * number), or either meta is malformed. Treating any of those as unchanged would
+ * turn a local change into a push that overwrites the remote.
+ *
+ * A bare-number `baseline` (legacy) still gets the rollback check, but a
+ * same-revision replacement can't be detected without the device id.
  */
 export function detectSyncConflict(
   local: SyncMeta,
   remote: SyncMeta,
-  lastSyncedRevision: number,
+  baseline: SyncBaseline | number,
 ): SyncComparison {
-  const localChanged = local.revision > lastSyncedRevision
-  const remoteChanged = remote.revision > lastSyncedRevision
+  if (!isValidSyncMeta(local) || !isValidSyncMeta(remote)) return 'diverged'
+  const base = typeof baseline === 'number' ? { revision: baseline, deviceId: null } : baseline
+  if (remote.revision < base.revision) return 'diverged'
+  if (
+    remote.revision === base.revision &&
+    base.deviceId !== null &&
+    remote.deviceId !== base.deviceId
+  ) {
+    return 'diverged'
+  }
+  const localChanged = local.revision > base.revision
+  const remoteChanged = remote.revision > base.revision
   if (!localChanged && !remoteChanged) return 'in-sync'
   if (localChanged && !remoteChanged) return 'local-ahead'
   if (!localChanged && remoteChanged) return 'remote-ahead'
