@@ -16,7 +16,7 @@ Modern authentication is the widest-open lane in the SSH-client market (2026-09-
 
 ## #89 — Post-quantum key exchange (this PR's core)
 
-`orderKexAlgorithms()` builds the client's KEX offer with the PQ hybrids `mlkem768x25519-sha256` (OpenSSH 10.0 default) and `sntrup761x25519-sha512@openssh.com` **ahead of** the classical fallbacks, de-duplicated in preference order, optionally intersected with the server's supported set. `kexProtection(negotiated)` classifies what was actually used so the session panel can show a **"post-quantum protected"** badge (or a neutral state). Pure — a test asserts every PQ hybrid sorts before any classical algorithm.
+`orderKexAlgorithms()` builds the client's KEX offer with the PQ hybrids `mlkem768x25519-sha256` (OpenSSH 10.0 default) and `sntrup761x25519-sha512@openssh.com` **ahead of** the classical fallbacks (curve25519, ECDH P-256/384/521, DH group-exchange / group16 / group14 — all SHA-2), de-duplicated in preference order, optionally intersected with the server's supported set. `kexProtection(negotiated)` classifies what was actually used so the session panel can show a **"post-quantum protected"** badge (or a neutral state). Pure — a test asserts every PQ hybrid sorts before any classical algorithm.
 
 **Integration (follow-up):** pass `orderKexAlgorithms()` into the `ssh2` client's `algorithms.kex`. **Spike first:** confirm the bundled `ssh2`/crypto stack exposes ML-KEM; if not, this issue's real cost is the library bump, which the spike sizes.
 
@@ -26,11 +26,11 @@ Modern authentication is the widest-open lane in the SSH-client market (2026-09-
 
 ## #86 / #87 — FIDO2 hardware keys & passkeys
 
-`authMethodInfo(kind)` ranks methods for the connection UI (hardware-backed FIDO2 + platform passkeys are strongest and phishing-resistant); `isSecurityKeyType` detects the `sk-*` OpenSSH key types. **Integration:** generate/use `sk-ed25519@openssh.com` / `sk-ecdsa-sk` via the platform FIDO2/CTAP stack (YubiKey/SoloKey/Nitrokey for #86; Secure Enclave / Windows Hello for #87). Only the key handle + public part enter the vault; the private key stays on the token/enclave — a *stronger* form of the existing secrets invariant. **Spike first:** confirm `ssh2` can present `sk-*` credentials or identify the middleware/native module needed; this spike gates the milestone's sizing.
+`authMethodInfo(kind)` ranks methods for the connection UI (hardware-backed FIDO2 + platform passkeys are strongest and phishing-resistant); `isSecurityKeyType` detects the `sk-*` OpenSSH key types. **Integration:** generate/use `sk-ssh-ed25519@openssh.com` / `sk-ecdsa-sha2-nistp256@openssh.com` via the platform FIDO2/CTAP stack (YubiKey/SoloKey/Nitrokey for #86; Secure Enclave / Windows Hello for #87). Only the key handle + public part enter the vault; the private key stays on the token/enclave — a *stronger* form of the existing secrets invariant. **Spike first:** confirm `ssh2` can present `sk-*` credentials or identify the middleware/native module needed; this spike gates the milestone's sizing.
 
 ## #90 — SSH agent hygiene (this PR's core)
 
-`agentForwardingAdvice({ agentForwarding, hasProxyJump })` returns a stable, keyable advice code — loudest when forwarding is on with no ProxyJump. **Integration:** default agent forwarding off, surface the warning on enable, add per-identity key timeout + an agent-lock action, and show whether forwarding is active in the session panel. Documented in `docs/THREAT-MODEL.md`.
+`agentForwardingAdvice({ agentForwarding, hasProxyJump })` returns a stable, keyable advice code — loudest when forwarding is on with no ProxyJump. **Integration:** default agent forwarding off, surface the warning on enable, add per-identity key timeout + an agent-lock action, and show whether forwarding is active in the session panel. The threat is summarized under "SSH agent forwarding" in `docs/THREAT-MODEL.md`.
 
 ## #100 — Positioning matrix
 

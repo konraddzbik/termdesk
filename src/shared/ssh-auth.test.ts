@@ -49,6 +49,14 @@ describe('kexProtection (#89)', () => {
   it('recognizes PQ, classical, and unknown', () => {
     expect(kexProtection('mlkem768x25519-sha256')).toBe('post-quantum')
     expect(kexProtection('curve25519-sha256')).toBe('classical')
+    for (const alg of [
+      'diffie-hellman-group14-sha256',
+      'diffie-hellman-group16-sha512',
+      'ecdh-sha2-nistp384',
+      'ecdh-sha2-nistp521',
+    ]) {
+      expect(kexProtection(alg)).toBe('classical')
+    }
     expect(kexProtection('diffie-hellman-group1-sha1')).toBe('unknown')
     expect(kexProtection(null)).toBe('unknown')
   })
@@ -85,6 +93,16 @@ describe('certValidityState (#88)', () => {
       'not-yet-valid',
     )
   })
+  it('never reports NaN / non-finite input as valid', () => {
+    expect(certValidityState({ validBefore: now + 100_000 }, { now: Number.NaN })).toBe(
+      'not-yet-valid',
+    )
+    expect(
+      certValidityState({ validBefore: now + 100_000 }, { now: Number.POSITIVE_INFINITY }),
+    ).toBe('not-yet-valid')
+    expect(certValidityState({ validAfter: Number.NaN }, { now })).toBe('not-yet-valid')
+    expect(certValidityState({ validBefore: Number.NaN }, { now })).toBe('not-yet-valid')
+  })
 })
 
 describe('describeCertValidity (#88)', () => {
@@ -97,6 +115,9 @@ describe('describeCertValidity (#88)', () => {
       describeCertValidity({ validBefore: now + 3 * 3600 }, { now, expiringWindowSec: 4 * 3600 }),
     ).toBe('Expires in 3h')
     expect(describeCertValidity({ validBefore: now - 1 }, { now })).toBe('Expired')
+  })
+  it('renders a sub-minute expiry as <1m, not 0m', () => {
+    expect(describeCertValidity({ validBefore: now + 20 }, { now })).toBe('Expires in <1m')
   })
 })
 

@@ -46,7 +46,11 @@ export const CLASSICAL_KEX = [
   'curve25519-sha256',
   'curve25519-sha256@libssh.org',
   'ecdh-sha2-nistp256',
+  'ecdh-sha2-nistp384',
+  'ecdh-sha2-nistp521',
   'diffie-hellman-group-exchange-sha256',
+  'diffie-hellman-group16-sha512',
+  'diffie-hellman-group14-sha256',
 ] as const
 
 /** True when `name` is a post-quantum hybrid key exchange. */
@@ -134,6 +138,9 @@ export function certValidityState(
   const window = opts.expiringWindowSec ?? DAY_SEC
   const after = cert.validAfter ?? 0
   const before = cert.validBefore ?? Number.POSITIVE_INFINITY
+  // Unusable input (a bad parse or clock) falls through every comparison below,
+  // so reject it up front — fail-safe like a malformed window, never 'valid'.
+  if (!Number.isFinite(now) || Number.isNaN(after) || Number.isNaN(before)) return 'not-yet-valid'
   if (now < after) return 'not-yet-valid'
   if (now >= before) return 'expired'
   if (Number.isFinite(before) && before - now <= window) return 'expiring-soon'
@@ -158,10 +165,13 @@ export function describeCertValidity(cert: CertValidity, opts: CertValidityOptio
     case 'expiring-soon': {
       const secs = certSecondsRemaining(cert, opts.now)
       const mins = Math.round(secs / 60)
+      if (mins < 1) return 'Expires in <1m'
       return mins >= 120 ? `Expires in ${Math.round(mins / 60)}h` : `Expires in ${mins}m`
     }
-    default:
+    case 'valid':
       return 'Valid'
+    default:
+      return assertNever(state)
   }
 }
 
@@ -279,14 +289,16 @@ export function authMethodInfo(kind: AuthMethodKind): AuthMethodInfo {
         phishingResistant: false,
         strength: 3,
       }
-    default:
+    case 'password':
       return {
-        kind: 'password',
+        kind,
         label: 'Password',
         hardwareBacked: false,
         phishingResistant: false,
         strength: 1,
       }
+    default:
+      return assertNever(kind)
   }
 }
 
@@ -299,4 +311,9 @@ export function authMethodInfo(kind: AuthMethodKind): AuthMethodInfo {
 export function isSecurityKeyType(keyType: string): boolean {
   const t = keyType.trim().toLowerCase()
   return t.startsWith('sk-') || t.startsWith('webauthn-sk-')
+}
+
+/** Compile-time exhaustiveness guard: adding a union member without a case fails typecheck. */
+function assertNever(value: never): never {
+  throw new Error(`Unhandled case: ${String(value)}`)
 }
