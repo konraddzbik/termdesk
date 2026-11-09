@@ -192,7 +192,7 @@ jobs:
         # Pinned to a commit: a floating tag on a third-party action that holds
         # contents:write can be repointed at new code without review, and this
         # job attaches the installers users download.
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -285,7 +285,7 @@ jobs:
       - name: Attach SHA256SUMS.txt to the draft Release
         # Pinned to a commit for the same reason the package job pins it: a
         # contents:write action must not float on a mutable tag.
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
