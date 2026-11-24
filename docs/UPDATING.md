@@ -1,5 +1,8 @@
 # Updating TermDesk
 
+> Design and roadmap for the update pipeline (trust model, gaps, phased plan):
+> [`architecture/app-update.md`](architecture/app-update.md).
+
 ## How updates reach users
 
 TermDesk checks this repository's **GitHub Releases** on launch via
